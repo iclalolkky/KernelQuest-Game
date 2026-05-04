@@ -26,7 +26,7 @@ def test_migrations_are_idempotent(db: Database) -> None:
     db.run_migrations()
     db.run_migrations()
     rows = db.connection.execute("SELECT name FROM schema_migrations ORDER BY name;").fetchall()
-    assert [r["name"] for r in rows] == ["001_init"]
+    assert [r["name"] for r in rows] == ["001_init", "002_runs", "003_meta"]
 
 
 def test_score_repository_insert_and_top_n(db: Database) -> None:

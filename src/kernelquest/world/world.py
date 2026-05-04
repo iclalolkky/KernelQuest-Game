@@ -63,7 +63,7 @@ class World:
 
     def recompute_fov(self) -> None:
         """Recalculate the visible set from the player's current position."""
-        radius = DEFAULT_SCAN_RADIUS
+        radius = DEFAULT_SCAN_RADIUS + self.player.bonus_scan_radius
         if self.player.has_scan_boost:
             radius += SCAN_BOOST_RADIUS_BONUS
         self.visible = compute_visible(self.grid, self.player.position, radius)

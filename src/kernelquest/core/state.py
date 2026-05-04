@@ -11,4 +11,8 @@ class GameState(Enum):
     MENU = auto()
     PLAYING = auto()
     GAME_OVER = auto()
+    HIGH_SCORES = auto()
+    STATS = auto()
+    SHOP = auto()
+    SETTINGS = auto()
     QUIT = auto()

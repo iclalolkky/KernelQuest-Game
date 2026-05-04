@@ -112,38 +112,38 @@ This roadmap breaks the project into four phases, each with concrete, testable d
 - [x] Screen shake on damage / crash.
 - [x] Particle effects for hits, explosions, item pickups.
 - [x] SFX (movement blip, attack, explosion, crash jingle).
-- [ ] Optional chiptune background loop.
+- [x] Optional chiptune background loop.
 
 **Exit criteria:** Looks and feels distinctive; new players can grasp the HUD without explanation.
 
 ---
 
-## Phase 4 — Persistence, Meta-progression & Final Integration
+## Phase 4 — Persistence, Meta-progression & Final Integration ✅
 
 **Goal:** Replay incentive and a polished release.
 
 ### 4.1 Leaderboard
-- [ ] `HighScores` screen (top N by `total_score`, then `depth_reached`).
-- [ ] Filter by date / player.
+- [x] `HighScores` screen (top N by `total_score`, then `depth_reached`).
+- [x] Filter by date / player.
 
 ### 4.2 Run history
-- [ ] `runs` table: seed, depth, score, crash cause, duration, timestamp.
-- [ ] Stats screen: deaths per enemy type, average depth, best run.
+- [x] `runs` table: seed, depth, score, crash cause, duration, timestamp.
+- [x] Stats screen: deaths per enemy type, average depth, best run.
 
 ### 4.3 Meta-progression (optional but recommended)
-- [ ] `bits` currency persisted across runs.
-- [ ] `upgrades` table: `id`, `key`, `level`, `cost`.
-- [ ] Shop screen between runs (e.g. `+10 RAM`, `+1 starting cycle`, `wider scan`).
+- [x] `bits` currency persisted across runs.
+- [x] `upgrades` table: `id`, `key`, `level`, `cost`.
+- [x] Shop screen between runs (e.g. `+10 RAM`, `+1 starting cycle`, `wider scan`).
 
 ### 4.4 Launcher / menus
-- [ ] Main menu: New Run, High Scores, Shop, Settings, Quit.
-- [ ] Settings: volume, key bindings, difficulty.
+- [x] Main menu: New Run, High Scores, Shop, Settings, Quit.
+- [x] Settings: volume, key bindings, difficulty.
 
 ### 4.5 Quality & release
-- [ ] Test coverage > 70% on `world/`, `entities/`, `systems/`, `data/`.
-- [ ] Performance pass (target 60 FPS at 1080p).
-- [ ] Package with `pyinstaller` for macOS / Windows / Linux.
-- [ ] `CHANGELOG.md` updated; tag `v1.0.0`.
+- [x] Test coverage > 70% on `world/`, `entities/`, `systems/`, `data/`.
+- [x] Performance pass (target 60 FPS at 1080p).
+- [x] Package with `pyinstaller` for macOS / Windows / Linux.
+- [x] `CHANGELOG.md` updated; tag `v1.0.0`.
 
 **Exit criteria:** A first-time player can install, play, lose, and see their name on the leaderboard.
 

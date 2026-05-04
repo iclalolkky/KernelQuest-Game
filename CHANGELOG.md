@@ -9,6 +9,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 ## [Unreleased]
 
 ### Added
+- **Phase 4 — Persistence, Meta-progression & Final Integration (complete).**
+  - `data/migrations.py`: `002_runs` adds the `runs` table (seed/depth/score/crash_cause/duration_ms/timestamp); `003_meta` adds the `meta_state` KV store and the `upgrades` table.
+  - `data/repositories.py`: `RunRepository` (insert + `all` + `deaths_by_cause` + `average_depth` + `best`), `MetaRepository` (`get`/`set`/`get_int`/`set_int` over an UPSERT-backed key/value store), `UpgradeRepository` (catalog-validated level CRUD).
+  - `data/upgrades_catalog.py`: typed catalog of five persistent upgrades (`ram`, `cycle`, `scan`, `damage`, `cache`) with deterministic cost curves and `PlayerBonus` accumulator.
+  - `core/settings.py`: `Difficulty` enum (`EASY`/`NORMAL`/`HARD`) with player/enemy damage multipliers, persisted via `MetaRepository`.
+  - `core/engine.py`: extended state machine (`MENU`/`HIGH_SCORES`/`STATS`/`SHOP`/`SETTINGS`/`PLAYING`/`GAME_OVER`/`QUIT`), keyboard-driven menu navigation, run timer, automatic `bits` award on game over, applies upgrade bonuses to fresh runs, applies difficulty multipliers to combat.
+  - `systems/ai.py`: `run_enemy_turn` now accepts a `damage_multiplier`, scaling all enemy damage paths.
+  - `ui/renderer.py`: new screens for high scores, stats, shop (with bits and cost preview), settings, and a navigable main menu.
+  - `ui/sfx.py`: optional chiptune background loop synthesized from a triangle-wave arpeggio with seamless playback, runtime master-volume control, and graceful no-op on devices without audio.
+  - 21 new unit tests: run/meta/upgrade repositories, settings (round-trip + clamping + garbage handling), upgrades catalog, and AI difficulty wiring.
+  - `kernelquest.spec`: PyInstaller spec for one-file builds on macOS/Windows/Linux.
+
+### Added (previous)
 - **Phase 0 — Bootstrapping (complete).** `pyproject.toml`, package layout, lint/format/type/test tooling, GitHub Actions CI, MIT license, issue & PR templates, `.editorconfig`, `.gitignore`.
 - **Phase 1 — Core Loop (complete).**
   - `core/engine.py`: `GameEngine` with FPS cap, delta-time, state machine (`MENU`/`PLAYING`/`GAME_OVER`/`QUIT`), clean shutdown.

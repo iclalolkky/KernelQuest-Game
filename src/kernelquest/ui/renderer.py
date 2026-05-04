@@ -288,20 +288,171 @@ class UIManager:
 
     # ----- screens -----
 
-    def render_menu(self) -> None:
+    def render_menu(self, options: list[str], selected: int) -> None:
         self.clear()
         title_surface = self.font_title.render("KERNEL QUEST", True, theme.NEON_CYAN)
         subtitle = self.font_body.render("The Memory Leak", True, theme.NEON_GREEN)
-        prompt = self.font_body.render(
-            "[ENTER] to spawn process    [ESC] to quit",
-            True,
-            theme.TEXT_PRIMARY,
-        )
         cx = WINDOW_WIDTH // 2
         cy = WINDOW_HEIGHT // 2
-        self.screen.blit(title_surface, title_surface.get_rect(center=(cx, cy - 60)))
-        self.screen.blit(subtitle, subtitle.get_rect(center=(cx, cy - 20)))
-        self.screen.blit(prompt, prompt.get_rect(center=(cx, cy + 60)))
+        self.screen.blit(title_surface, title_surface.get_rect(center=(cx, cy - 180)))
+        self.screen.blit(subtitle, subtitle.get_rect(center=(cx, cy - 140)))
+
+        for i, label in enumerate(options):
+            color = theme.NEON_CYAN if i == selected else theme.TEXT_PRIMARY
+            prefix = "▶ " if i == selected else "  "
+            surf = self.font_body.render(f"{prefix}{label}", True, color)
+            self.screen.blit(surf, surf.get_rect(center=(cx, cy - 60 + i * 32)))
+
+        hint = self.font_small.render(
+            "[↑/↓] navigate  [enter] select  [esc] quit",
+            True,
+            theme.TEXT_DIM,
+        )
+        self.screen.blit(hint, hint.get_rect(center=(cx, WINDOW_HEIGHT - 40)))
+
+    def render_high_scores(self, rows: list[tuple[str, int, int, str, str]]) -> None:
+        self.clear()
+        cx = WINDOW_WIDTH // 2
+        title = self.font_title.render("HIGH SCORES", True, theme.NEON_CYAN)
+        self.screen.blit(title, title.get_rect(center=(cx, 60)))
+
+        if not rows:
+            empty = self.font_body.render("No runs recorded yet.", True, theme.TEXT_DIM)
+            self.screen.blit(empty, empty.get_rect(center=(cx, WINDOW_HEIGHT // 2)))
+        else:
+            header = "{:<4}{:<18}{:>8}{:>8}  {:<14}{}".format(
+                "#", "PROCESS", "SCORE", "DEPTH", "CRASH", "WHEN"
+            )
+            self._blit_text(header, (cx - 360, 120), theme.NEON_AMBER, self.font_body)
+            for i, row in enumerate(rows):
+                name, score, depth, cause, when = row
+                line = "{:<4}{:<18}{:>8}{:>8}  {:<14}{}".format(
+                    f"{i + 1}.", name[:16], score, depth, cause[:12], when[:16]
+                )
+                self._blit_text(line, (cx - 360, 152 + i * 24), theme.TEXT_PRIMARY, self.font_body)
+
+        self._blit_back_hint()
+
+    def render_stats(
+        self,
+        average_depth: float,
+        deaths_by_cause: dict[str, int],
+        best: tuple[str, int, int] | None,
+        run_count: int,
+    ) -> None:
+        self.clear()
+        cx = WINDOW_WIDTH // 2
+        title = self.font_title.render("RUN STATS", True, theme.NEON_CYAN)
+        self.screen.blit(title, title.get_rect(center=(cx, 60)))
+
+        x = cx - 240
+        y = 130
+        self._blit_text(
+            f"Total runs       : {run_count}", (x, y), theme.TEXT_PRIMARY, self.font_body
+        )
+        y += 28
+        self._blit_text(
+            f"Average depth    : {average_depth:.2f}",
+            (x, y),
+            theme.TEXT_PRIMARY,
+            self.font_body,
+        )
+        y += 28
+        if best is not None:
+            best_name, best_score, best_depth = best
+            self._blit_text(
+                f"Best run         : {best_name} — {best_score} pts (depth {best_depth})",
+                (x, y),
+                theme.NEON_GREEN,
+                self.font_body,
+            )
+            y += 28
+        else:
+            self._blit_text("Best run         : —", (x, y), theme.TEXT_DIM, self.font_body)
+            y += 28
+
+        y += 12
+        self._blit_text("Deaths by cause:", (x, y), theme.NEON_AMBER, self.font_body)
+        y += 28
+        if not deaths_by_cause:
+            self._blit_text("  (no recorded crashes)", (x, y), theme.TEXT_DIM, self.font_body)
+        else:
+            for cause, count in deaths_by_cause.items():
+                self._blit_text(
+                    f"  {cause:<24} {count}",
+                    (x, y),
+                    theme.TEXT_PRIMARY,
+                    self.font_body,
+                )
+                y += 22
+
+        self._blit_back_hint()
+
+    def render_shop(
+        self,
+        bits: int,
+        rows: list[tuple[str, str, str, int, int, int | None]],
+        selected: int,
+        message: str | None = None,
+    ) -> None:
+        self.clear()
+        cx = WINDOW_WIDTH // 2
+        title = self.font_title.render("UPGRADE SHOP", True, theme.NEON_CYAN)
+        self.screen.blit(title, title.get_rect(center=(cx, 60)))
+
+        bits_text = self.font_body.render(f"Bits available: {bits}", True, theme.NEON_GREEN)
+        self.screen.blit(bits_text, bits_text.get_rect(center=(cx, 110)))
+
+        x = cx - 360
+        y = 160
+        for i, row in enumerate(rows):
+            key, label, desc, level, max_level, next_cost = row
+            is_sel = i == selected
+            color = theme.NEON_CYAN if is_sel else theme.TEXT_PRIMARY
+            prefix = "▶ " if is_sel else "  "
+            cost_label = "MAX" if next_cost is None else f"{next_cost} bits"
+            line = f"{prefix}{label:<10} L{level}/{max_level}    {desc}    [{cost_label}]"
+            self._blit_text(line, (x, y), color, self.font_body)
+            y += 28
+            del key
+
+        if message is not None:
+            msg_surf = self.font_body.render(message, True, theme.NEON_AMBER)
+            self.screen.blit(msg_surf, msg_surf.get_rect(center=(cx, WINDOW_HEIGHT - 90)))
+
+        hint = self.font_small.render(
+            "[↑/↓] select   [enter] buy   [esc] back",
+            True,
+            theme.TEXT_DIM,
+        )
+        self.screen.blit(hint, hint.get_rect(center=(cx, WINDOW_HEIGHT - 40)))
+
+    def render_settings(self, options: list[tuple[str, str]], selected: int) -> None:
+        self.clear()
+        cx = WINDOW_WIDTH // 2
+        title = self.font_title.render("SETTINGS", True, theme.NEON_CYAN)
+        self.screen.blit(title, title.get_rect(center=(cx, 80)))
+
+        x = cx - 220
+        y = 180
+        for i, (label, value) in enumerate(options):
+            is_sel = i == selected
+            color = theme.NEON_CYAN if is_sel else theme.TEXT_PRIMARY
+            prefix = "▶ " if is_sel else "  "
+            self._blit_text(f"{prefix}{label:<14} : {value}", (x, y), color, self.font_body)
+            y += 32
+
+        hint = self.font_small.render(
+            "[↑/↓] select   [←/→] adjust   [esc] back",
+            True,
+            theme.TEXT_DIM,
+        )
+        self.screen.blit(hint, hint.get_rect(center=(cx, WINDOW_HEIGHT - 40)))
+
+    def _blit_back_hint(self) -> None:
+        cx = WINDOW_WIDTH // 2
+        hint = self.font_small.render("[esc] back", True, theme.TEXT_DIM)
+        self.screen.blit(hint, hint.get_rect(center=(cx, WINDOW_HEIGHT - 40)))
 
     def render_game_over(self, player: Player, name_buffer: str) -> None:
         self.clear()

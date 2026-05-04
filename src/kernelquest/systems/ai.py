@@ -13,32 +13,38 @@ from kernelquest.systems.pathfinding import (
 from kernelquest.world.world import World
 
 
-def run_enemy_turn(world: World, rng: random.Random) -> list[str]:
+def run_enemy_turn(world: World, rng: random.Random, damage_multiplier: float = 1.0) -> list[str]:
     """Tick every alive enemy. Returns log messages for each meaningful event."""
     log: list[str] = []
     # Snapshot to avoid mutation during iteration.
     for enemy in list(world.enemies):
         if not enemy.is_alive or not world.player.is_alive:
             continue
-        log.extend(_act(enemy, world, rng))
+        log.extend(_act(enemy, world, rng, damage_multiplier))
     world.remove_dead_enemies()
     return log
 
 
-def _act(enemy: Malware, world: World, rng: random.Random) -> list[str]:
+def _scaled_damage(base: int, multiplier: float) -> int:
+    return max(1, int(round(base * multiplier)))
+
+
+def _act(enemy: Malware, world: World, rng: random.Random, mult: float) -> list[str]:
     if isinstance(enemy, LogicBomb):
-        return _act_logic_bomb(enemy, world)
+        return _act_logic_bomb(enemy, world, mult)
     if isinstance(enemy, KernelPanic):
-        return _act_kernel_panic(enemy, world, rng)
+        return _act_kernel_panic(enemy, world, rng, mult)
     if isinstance(enemy, SyntaxError_):
-        return _act_syntax_error(enemy, world, rng)
+        return _act_syntax_error(enemy, world, rng, mult)
     return _step_toward_player(enemy, world)  # pragma: no cover
 
 
-def _act_syntax_error(enemy: SyntaxError_, world: World, rng: random.Random) -> list[str]:
+def _act_syntax_error(
+    enemy: SyntaxError_, world: World, rng: random.Random, mult: float
+) -> list[str]:
     player = world.player
     if chebyshev_distance(enemy.position, player.position) == 1:
-        dmg = enemy_attack(player, enemy)
+        dmg = enemy_attack(player, enemy, damage=_scaled_damage(enemy.damage, mult))
         return [f"{enemy.name} bit you for {dmg} RAM"]
 
     # 25% chance to wander randomly; otherwise pathfind.
@@ -47,16 +53,17 @@ def _act_syntax_error(enemy: SyntaxError_, world: World, rng: random.Random) -> 
     return _step_toward_player(enemy, world)
 
 
-def _act_logic_bomb(enemy: LogicBomb, world: World) -> list[str]:
+def _act_logic_bomb(enemy: LogicBomb, world: World, mult: float) -> list[str]:
     player = world.player
     if chebyshev_distance(enemy.position, player.position) <= enemy.radius:
-        return _detonate(enemy, world)
+        return _detonate(enemy, world, mult)
     return _step_toward_player(enemy, world)
 
 
-def _detonate(enemy: LogicBomb, world: World) -> list[str]:
+def _detonate(enemy: LogicBomb, world: World, mult: float) -> list[str]:
     log: list[str] = [f"{enemy.name} detonates!"]
     cx, cy = enemy.position
+    blast_dmg = _scaled_damage(enemy.damage, mult)
     for dx in range(-enemy.radius, enemy.radius + 1):
         for dy in range(-enemy.radius, enemy.radius + 1):
             if dx == 0 and dy == 0:
@@ -65,8 +72,8 @@ def _detonate(enemy: LogicBomb, world: World) -> list[str]:
             if not world.grid.in_bounds(tx, ty):
                 continue
             if world.player.position == (tx, ty):
-                enemy_attack(world.player, enemy)
-                log.append(f"You take {enemy.damage} RAM from the blast")
+                enemy_attack(world.player, enemy, damage=blast_dmg)
+                log.append(f"You take {blast_dmg} RAM from the blast")
             other = world.enemy_at((tx, ty))
             if other is not None and other is not enemy:
                 other.take_damage(enemy.damage)
@@ -74,10 +81,12 @@ def _detonate(enemy: LogicBomb, world: World) -> list[str]:
     return log
 
 
-def _act_kernel_panic(enemy: KernelPanic, world: World, rng: random.Random) -> list[str]:
+def _act_kernel_panic(
+    enemy: KernelPanic, world: World, rng: random.Random, mult: float
+) -> list[str]:
     player = world.player
     if chebyshev_distance(enemy.position, player.position) <= 1:
-        dmg = enemy_attack(player, enemy)
+        dmg = enemy_attack(player, enemy, damage=_scaled_damage(enemy.damage, mult))
         return [f"{enemy.name} crushes you for {dmg} RAM"]
 
     if (
@@ -88,8 +97,9 @@ def _act_kernel_panic(enemy: KernelPanic, world: World, rng: random.Random) -> l
         dx = player.position[0] - enemy.position[0]
         dy = player.position[1] - enemy.position[1]
         if dx == 0 or dy == 0:
-            enemy_attack(player, enemy, damage=enemy.damage)
-            return [f"{enemy.name} fires a kernel trap (-{enemy.damage} RAM)"]
+            dmg = _scaled_damage(enemy.damage, mult)
+            enemy_attack(player, enemy, damage=dmg)
+            return [f"{enemy.name} fires a kernel trap (-{dmg} RAM)"]
     return _step_toward_player(enemy, world)
 
 

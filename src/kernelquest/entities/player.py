@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from kernelquest.core.config import (
+    PLAYER_BASE_DAMAGE,
     PLAYER_CACHE_CAPACITY,
     PLAYER_START_CPU_CYCLES,
     PLAYER_START_POSITION,
@@ -38,6 +39,8 @@ class Player(Entity):
     depth_reached: int = 1
     crash_cause: str | None = None
     scan_boost_turns: int = 0
+    base_damage: int = PLAYER_BASE_DAMAGE
+    bonus_scan_radius: int = 0
 
     # ----- state queries -----
 

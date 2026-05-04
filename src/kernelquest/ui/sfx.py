@@ -14,6 +14,25 @@ from kernelquest.core.config import AUDIO_SAMPLE_RATE
 log = logging.getLogger(__name__)
 
 _AMPLITUDE: Final[int] = 12000
+_CHIPTUNE_NOTES: Final[tuple[int, ...]] = (
+    220,
+    277,
+    330,
+    277,
+    220,
+    196,
+    247,
+    277,
+    330,
+    392,
+    440,
+    392,
+    330,
+    277,
+    220,
+    247,
+)
+_CHIPTUNE_NOTE_MS: Final[int] = 180
 
 
 def _square_wave(frequency: float, duration_ms: int) -> bytes:
@@ -46,12 +65,38 @@ def _sweep(start_hz: float, end_hz: float, duration_ms: int) -> bytes:
     return samples.tobytes()
 
 
+def _chiptune_loop() -> bytes:
+    """Concatenate `_CHIPTUNE_NOTES` into a single seamless triangle-ish loop."""
+    samples = array("h")
+    for freq in _CHIPTUNE_NOTES:
+        sample_count = int(AUDIO_SAMPLE_RATE * _CHIPTUNE_NOTE_MS / 1000)
+        period = max(1, int(AUDIO_SAMPLE_RATE / freq))
+        for i in range(sample_count):
+            position = i / sample_count
+            envelope = min(position * 8.0, 1.0) * min((1.0 - position) * 8.0, 1.0) * 0.45
+            # Triangle-ish wave for a softer chiptune feel.
+            tri = 2 * abs((i % period) / period - 0.5) - 0.5
+            value = int(_AMPLITUDE * tri * envelope)
+            samples.append(value)
+            samples.append(value)
+        # Tiny inter-note gap to mask boundary clicks.
+        gap = int(AUDIO_SAMPLE_RATE * 0.01)
+        for _ in range(gap):
+            samples.append(0)
+            samples.append(0)
+    return samples.tobytes()
+
+
 class SoundManager:
     """Plays short procedurally-generated SFX. Silent if audio init fails."""
 
     def __init__(self) -> None:
         self._enabled = False
         self._sounds: dict[str, pygame.mixer.Sound] = {}
+        self._music: pygame.mixer.Sound | None = None
+        self._music_channel: pygame.mixer.Channel | None = None
+        self._volume: float = 0.25
+        self._music_playing: bool = False
         try:
             if not pygame.mixer.get_init():
                 pygame.mixer.init(frequency=AUDIO_SAMPLE_RATE, size=-16, channels=2)
@@ -69,8 +114,22 @@ class SoundManager:
                 "crash": pygame.mixer.Sound(buffer=_sweep(330, 60, 600)),
                 "descend": pygame.mixer.Sound(buffer=_sweep(440, 880, 220)),
             }
-            for sound in self._sounds.values():
-                sound.set_volume(0.25)
+            try:
+                self._music = pygame.mixer.Sound(buffer=_chiptune_loop())
+                self._music_channel = pygame.mixer.Channel(7)
+            except pygame.error:  # pragma: no cover
+                self._music = None
+                self._music_channel = None
+            self.set_volume(self._volume)
+
+    def set_volume(self, volume: float) -> None:
+        self._volume = max(0.0, min(1.0, volume))
+        if not self._enabled:
+            return
+        for sound in self._sounds.values():
+            sound.set_volume(self._volume)
+        if self._music is not None:
+            self._music.set_volume(self._volume * 0.5)
 
     def play(self, name: str) -> None:
         if not self._enabled:
@@ -80,5 +139,21 @@ class SoundManager:
             return
         try:
             sound.play()
-        except pygame.error:  # pragma: no cover - device removed mid-run
+        except pygame.error:  # pragma: no cover
             self._enabled = False
+
+    def start_music(self) -> None:
+        if not self._enabled or self._music is None or self._music_channel is None:
+            return
+        if self._music_playing:
+            return
+        try:
+            self._music_channel.play(self._music, loops=-1)
+            self._music_playing = True
+        except pygame.error:  # pragma: no cover
+            self._music_playing = False
+
+    def stop_music(self) -> None:
+        if self._music_channel is not None and self._music_playing:
+            self._music_channel.stop()
+            self._music_playing = False
