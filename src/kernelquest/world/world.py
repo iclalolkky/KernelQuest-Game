@@ -32,6 +32,7 @@ class World:
     depth: int = 1
     visible: set[tuple[int, int]] = field(default_factory=set)
     explored: set[tuple[int, int]] = field(default_factory=set)
+    turn_counter: int = 0
 
     # ----- queries -----
 

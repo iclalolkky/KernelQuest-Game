@@ -32,23 +32,47 @@ from kernelquest.core.settings import Settings
 from kernelquest.core.state import GameState
 from kernelquest.data.database import Database
 from kernelquest.data.repositories import (
+    DaemonRepository,
+    DailyRunRepository,
     MetaRepository,
     RunRepository,
     ScoreRepository,
     UpgradeRepository,
 )
 from kernelquest.data.upgrades_catalog import CATALOG, PlayerBonus
-from kernelquest.entities.malware import Malware
+from kernelquest.entities.daemon import (
+    CATALOG as DAEMON_CATALOG,
+)
+from kernelquest.entities.daemon import (
+    Daemon,
+    get_daemon,
+    starter_daemon,
+)
+from kernelquest.entities.malware import Malware, SegFault, ZombieProcess
+from kernelquest.entities.patch import CATALOG as PATCH_CATALOG
+from kernelquest.entities.patch import Patch, PatchState
 from kernelquest.entities.player import Player
+from kernelquest.entities.program import starter_loadout
 from kernelquest.systems.ai import run_enemy_turn
 from kernelquest.systems.combat import player_attack
+from kernelquest.systems.daemons import (
+    damage_multiplier_on_attack,
+)
+from kernelquest.systems.daemons import (
+    on_pickup as daemon_on_pickup,
+)
+from kernelquest.systems.daemons import (
+    on_turn_end as daemon_on_turn_end,
+)
 from kernelquest.systems.inventory import pickup_item_at, use_cache_slot
+from kernelquest.systems.programs import execute_program
 from kernelquest.ui import theme
 from kernelquest.ui.console_log import ConsoleLog
 from kernelquest.ui.fx import ParticleSystem, ScreenShake
 from kernelquest.ui.renderer import UIManager
 from kernelquest.ui.sfx import SoundManager
 from kernelquest.ui.viewport import Viewport
+from kernelquest.world.daily import today_iso, today_seed
 from kernelquest.world.generator import generate_world
 from kernelquest.world.tile import TileType
 from kernelquest.world.world import World
@@ -59,7 +83,9 @@ _KEY_BITS = "meta.bits"
 
 _MENU_OPTIONS: tuple[str, ...] = (
     "New Run",
+    "Daily Run",
     "High Scores",
+    "Daily Board",
     "Stats",
     "Shop",
     "Settings",
@@ -72,6 +98,8 @@ class _RunMeta:
     """Per-run bookkeeping (seed, start time)."""
 
     seed: int
+    is_daily: bool = False
+    daily_date: str = ""
     started_at: float = field(default_factory=time.monotonic)
 
     def elapsed_ms(self) -> int:
@@ -88,6 +116,8 @@ class GameEngine:
         self._runs: RunRepository | None = None
         self._meta: MetaRepository | None = None
         self._upgrades: UpgradeRepository | None = None
+        self._daemons_repo: DaemonRepository | None = None
+        self._daily_repo: DailyRunRepository | None = None
 
         self._state: GameState = GameState.MENU
         self._seed_override = seed
@@ -107,6 +137,9 @@ class GameEngine:
         self._settings_index: int = 0
         self._shop_message: str | None = None
         self._run_meta: _RunMeta | None = None
+        self._patches: PatchState = PatchState()
+        self._patch_choices: list[Patch] = []
+        self._patch_pick_index: int = 0
 
     # ----- public entry point -----
 
@@ -117,7 +150,13 @@ class GameEngine:
         self._runs = RunRepository(self._database)
         self._meta = MetaRepository(self._database)
         self._upgrades = UpgradeRepository(self._database)
+        self._daemons_repo = DaemonRepository(self._database)
+        self._daily_repo = DailyRunRepository(self._database)
         self._settings = settings_module.load(self._meta)
+        # Grant the starter daemon on the very first launch.
+        if not self._daemons_repo.owned():
+            self._daemons_repo.grant(starter_daemon().key)
+            self._daemons_repo.set_equipped([starter_daemon().key])
 
         pygame.init()
         try:
@@ -162,12 +201,14 @@ class GameEngine:
                 self._handle_playing_key(event)
             elif self._state is GameState.GAME_OVER:
                 self._handle_game_over_key(event)
-            elif self._state in (GameState.HIGH_SCORES, GameState.STATS):
+            elif self._state in (GameState.HIGH_SCORES, GameState.STATS, GameState.DAILY_BOARD):
                 self._handle_back_key(event)
             elif self._state is GameState.SHOP:
                 self._handle_shop_key(event)
             elif self._state is GameState.SETTINGS:
                 self._handle_settings_key(event)
+            elif self._state is GameState.PATCH_PICK:
+                self._handle_patch_pick_key(event)
 
     def _handle_menu_key(self, event: pygame.event.Event) -> None:
         if event.key == pygame.K_ESCAPE:
@@ -183,9 +224,13 @@ class GameEngine:
     def _activate_menu_option(self) -> None:
         choice = _MENU_OPTIONS[self._menu_index]
         if choice == "New Run":
-            self._start_new_run()
+            self._start_new_run(daily=False)
+        elif choice == "Daily Run":
+            self._start_new_run(daily=True)
         elif choice == "High Scores":
             self._state = GameState.HIGH_SCORES
+        elif choice == "Daily Board":
+            self._state = GameState.DAILY_BOARD
         elif choice == "Stats":
             self._state = GameState.STATS
         elif choice == "Shop":
@@ -252,6 +297,17 @@ class GameEngine:
             self._end_player_turn()
             return
 
+        program_slot = _key_to_program_slot(event.key)
+        if program_slot is not None:
+            result = execute_program(world, program_slot, self._rng)
+            self._console.info(result.message)
+            if result.success:
+                if result.killed_enemy is not None:
+                    self._on_enemy_killed(result.killed_enemy)
+                world.recompute_fov()
+                self._after_player_action()
+            return
+
         slot_index = _key_to_slot(event.key)
         if slot_index is not None:
             message = use_cache_slot(world, slot_index)
@@ -275,6 +331,18 @@ class GameEngine:
         moved = player.try_move(*delta, world.grid)
         if moved:
             self._on_player_moved()
+
+    def _handle_patch_pick_key(self, event: pygame.event.Event) -> None:
+        if event.key in (pygame.K_LEFT, pygame.K_a):
+            self._patch_pick_index = (self._patch_pick_index - 1) % len(self._patch_choices)
+        elif event.key in (pygame.K_RIGHT, pygame.K_d):
+            self._patch_pick_index = (self._patch_pick_index + 1) % len(self._patch_choices)
+        elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
+            picked = self._patch_choices[self._patch_pick_index]
+            self._patches.add(picked)
+            self._console.info(f"Applied patch: {picked.label}")
+            self._patch_choices = []
+            self._state = GameState.PLAYING
 
     def _handle_game_over_key(self, event: pygame.event.Event) -> None:
         if event.key == pygame.K_RETURN or event.key == pygame.K_KP_ENTER:
@@ -303,13 +371,18 @@ class GameEngine:
                 particles=self._particles,
             )
             ui.render_hud(
-                self._world.player, sector=self._world.player.depth_reached, world=self._world
+                self._world.player,
+                sector=self._world.player.depth_reached,
+                world=self._world,
+                patches=[p.label for p in self._patches.selected],
             )
             ui.render_console(self._console)
         elif self._state is GameState.GAME_OVER and self._world is not None:
             ui.render_game_over(self._world.player, self._name_buffer)
         elif self._state is GameState.HIGH_SCORES:
             ui.render_high_scores(self._fetch_high_scores())
+        elif self._state is GameState.DAILY_BOARD:
+            ui.render_daily_board(today_iso(), self._fetch_daily_board())
         elif self._state is GameState.STATS:
             avg, deaths, best, count = self._fetch_stats()
             ui.render_stats(avg, deaths, best, count)
@@ -322,14 +395,29 @@ class GameEngine:
             )
         elif self._state is GameState.SETTINGS:
             ui.render_settings(self._settings_rows(), self._settings_index)
+        elif self._state is GameState.PATCH_PICK:
+            ui.render_patch_pick(
+                [(p.label, p.description) for p in self._patch_choices],
+                self._patch_pick_index,
+            )
         ui.present()
 
     # ----- transitions -----
 
-    def _start_new_run(self) -> None:
-        seed = self._seed_override if self._seed_override is not None else random.randrange(2**31)
+    def _start_new_run(self, *, daily: bool = False) -> None:
+        if daily:
+            seed = today_seed()
+        elif self._seed_override is not None:
+            seed = self._seed_override
+        else:
+            seed = random.randrange(2**31)
         self._rng = random.Random(seed)
-        self._run_meta = _RunMeta(seed=seed)
+        self._run_meta = _RunMeta(
+            seed=seed, is_daily=daily, daily_date=today_iso() if daily else ""
+        )
+        self._patches = PatchState()
+        self._patch_choices = []
+        self._patch_pick_index = 0
 
         bonus = self._compute_bonus()
         max_ram = PLAYER_START_RAM + bonus.bonus_ram
@@ -343,6 +431,9 @@ class GameEngine:
             base_damage=PLAYER_BASE_DAMAGE + bonus.bonus_damage,
             bonus_scan_radius=bonus.bonus_scan_radius,
         )
+        # Phase 5 — equip programs and persisted daemons.
+        player.programs = starter_loadout()
+        player.daemons = self._equipped_daemons()
 
         self._world = generate_world(player=player, depth=1, rng=self._rng)
         self._world.recompute_fov()
@@ -351,9 +442,23 @@ class GameEngine:
         )
         self._name_buffer = ""
         self._console.clear()
-        self._console.info(f"Process spawned in sector 0x{player.depth_reached:02X} (seed={seed})")
+        prefix = "DAILY " if daily else ""
+        self._console.info(
+            f"{prefix}Process spawned in sector 0x{player.depth_reached:02X} (seed={seed})"
+        )
         self._particles.clear()
         self._state = GameState.PLAYING
+
+    def _equipped_daemons(self) -> list[Daemon]:
+        if self._daemons_repo is None:
+            return []
+        out: list[Daemon] = []
+        for key in self._daemons_repo.equipped():
+            try:
+                out.append(get_daemon(key))
+            except KeyError:
+                continue
+        return out
 
     def _compute_bonus(self) -> PlayerBonus:
         bonus = PlayerBonus()
@@ -371,7 +476,20 @@ class GameEngine:
         player = self._world.player
         if not player.spend_cycle():
             return
-        damage = max(1, int(round(player.base_damage * self._settings.player_damage_multiplier)))
+        patch_effects = self._patches.effects()
+        damage = max(
+            1,
+            int(
+                round(
+                    player.base_damage
+                    * self._settings.player_damage_multiplier
+                    * patch_effects.player_damage_mult
+                    * player.next_attack_multiplier
+                    * damage_multiplier_on_attack(player)
+                )
+            ),
+        )
+        player.next_attack_multiplier = 1.0
         result = player_attack(self._world, enemy, self._rng, damage=damage)
         self._console.info(result.log_message)
         self._play_sfx("attack")
@@ -383,11 +501,40 @@ class GameEngine:
             count=14 if result.killed else 6,
         )
         if result.killed:
-            self._shake.punch(SCREEN_SHAKE_KILL_INTENSITY)
-            self._world.remove_dead_enemies()
-            self._play_sfx("explode")
+            self._on_enemy_killed(enemy)
         self._world.recompute_fov()
         self._after_player_action()
+
+    def _on_enemy_killed(self, enemy: Malware) -> None:
+        assert self._world is not None
+        player = self._world.player
+        self._shake.punch(SCREEN_SHAKE_KILL_INTENSITY)
+        self._world.remove_dead_enemies()
+        self._play_sfx("explode")
+        # Score with combo + patch multipliers.
+        patch_effects = self._patches.effects()
+        base = enemy.score_value
+        gained = int(round(base * player.combo_multiplier * patch_effects.score_mult))
+        player.score = max(0, player.score - base + gained)  # base was already added by combat
+        player.register_combo_event()
+        # Bosses drop a guaranteed daemon (if not all already owned).
+        if isinstance(enemy, ZombieProcess) and self._rng.random() < 0.25:
+            self._maybe_award_daemon()
+        if isinstance(enemy, SegFault):
+            self._maybe_award_daemon(force=True)
+
+    def _maybe_award_daemon(self, *, force: bool = False) -> None:
+        if self._daemons_repo is None:
+            return
+        owned = self._daemons_repo.owned()
+        unowned = [d for d in DAEMON_CATALOG if d.key not in owned]
+        if not unowned:
+            return
+        if not force and self._rng.random() > 0.5:
+            return
+        new_daemon = self._rng.choice(unowned)
+        self._daemons_repo.grant(new_daemon.key)
+        self._console.info(f"Acquired daemon: {new_daemon.label}")
 
     def _on_player_moved(self) -> None:
         assert self._world is not None
@@ -400,6 +547,11 @@ class GameEngine:
         if message is not None:
             self._console.info(message)
             self._play_sfx("pickup")
+            bonus_score = daemon_on_pickup(self._world)
+            if bonus_score > 0:
+                player.score += bonus_score
+                self._console.info(f"daemon bonus: +{bonus_score}")
+            player.register_combo_event()
             self._particles.burst(
                 (player.position[0] + 0.5, player.position[1] + 0.5),
                 theme.NEON_GREEN,
@@ -435,10 +587,15 @@ class GameEngine:
     def _end_player_turn(self) -> None:
         assert self._world is not None
         starting_ram = self._world.player.ram
-        for message in run_enemy_turn(
-            self._world, self._rng, damage_multiplier=self._settings.enemy_damage_multiplier
-        ):
+        patch_effects = self._patches.effects()
+        enemy_mult = self._settings.enemy_damage_multiplier * patch_effects.enemy_damage_mult
+        for message in run_enemy_turn(self._world, self._rng, damage_multiplier=enemy_mult):
             self._console.warn(message)
+
+        # Patch: speed_demon → enemies move an extra time per turn.
+        for _ in range(patch_effects.enemy_speed_bonus):
+            for message in run_enemy_turn(self._world, self._rng, damage_multiplier=enemy_mult):
+                self._console.warn(message)
 
         if self._world.player.ram < starting_ram:
             self._shake.punch(SCREEN_SHAKE_DAMAGE_INTENSITY)
@@ -447,6 +604,10 @@ class GameEngine:
             self._enter_game_over()
             return
         self._world.player.tick_status_effects()
+        self._world.player.tick_combo_idle()
+        self._world.turn_counter += 1
+        for msg in daemon_on_turn_end(self._world, self._world.turn_counter):
+            self._console.info(msg)
         self._world.player.end_turn()
         self._world.recompute_fov()
 
@@ -465,6 +626,16 @@ class GameEngine:
         self._world.recompute_fov()
         self._particles.clear()
         player.end_turn()
+        # Offer 3 random patches every odd-depth descent (skip depth 1).
+        if player.depth_reached >= 2:
+            self._open_patch_picker()
+
+    def _open_patch_picker(self) -> None:
+        if len(PATCH_CATALOG) < 3:  # pragma: no cover
+            return
+        self._patch_choices = self._rng.sample(list(PATCH_CATALOG), k=3)
+        self._patch_pick_index = 0
+        self._state = GameState.PATCH_PICK
 
     def _enter_game_over(self) -> None:
         assert self._world is not None
@@ -496,6 +667,16 @@ class GameEngine:
                 crash_cause=player.crash_cause or "unknown",
                 duration_ms=self._run_meta.elapsed_ms(),
             )
+            if self._run_meta.is_daily and self._daily_repo is not None:
+                self._daily_repo.insert(
+                    run_date=self._run_meta.daily_date,
+                    player_name=name,
+                    seed=self._run_meta.seed,
+                    depth_reached=player.depth_reached,
+                    total_score=player.score,
+                    crash_cause=player.crash_cause or "unknown",
+                    duration_ms=self._run_meta.elapsed_ms(),
+                )
         # Award bits = score / 10 + depth * 2.
         bits_earned = player.score // 10 + player.depth_reached * 2
         current = self._meta.get_int(_KEY_BITS, 0)
@@ -581,11 +762,24 @@ class GameEngine:
         runs = self._runs.all()
         avg = self._runs.average_depth()
         deaths = self._runs.deaths_by_cause()
-        best = self._runs.best()
+        best = (
+            self._runs.best_with_score_fallback(self._scores)
+            if self._scores is not None
+            else self._runs.best()
+        )
         best_tuple: tuple[str, int, int] | None = None
         if best is not None:
             best_tuple = (best.player_name, best.total_score, best.depth_reached)
         return (avg, deaths, best_tuple, len(runs))
+
+    def _fetch_daily_board(self) -> list[tuple[str, int, int, str, str]]:
+        if self._daily_repo is None:
+            return []
+        rows = self._daily_repo.top_for_date(today_iso(), 10)
+        return [
+            (r.player_name, r.total_score, r.depth_reached, r.crash_cause, r.timestamp)
+            for r in rows
+        ]
 
 
 def _key_to_delta(key: int) -> tuple[int, int] | None:
@@ -611,5 +805,14 @@ def _key_to_slot(key: int) -> int | None:
         pygame.K_7: 6,
         pygame.K_8: 7,
         pygame.K_9: 8,
+    }
+    return mapping.get(key)
+
+
+def _key_to_program_slot(key: int) -> int | None:
+    mapping = {
+        pygame.K_q: 0,
+        pygame.K_e: 1,
+        pygame.K_r: 2,
     }
     return mapping.get(key)

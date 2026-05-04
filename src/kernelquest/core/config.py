@@ -88,3 +88,20 @@ HUD_MINIMAP_TILE: Final[int] = 6
 
 # --- Audio ---
 AUDIO_SAMPLE_RATE: Final[int] = 22050
+
+# --- Phase 5: Programs / Daemons / Combo / Patches ---
+PROGRAM_SLOTS: Final[int] = 3
+DAEMON_SLOTS: Final[int] = 5
+COMBO_IDLE_RESET_TURNS: Final[int] = 3
+COMBO_MULT_PER_STEP: Final[float] = 0.25
+COMBO_MAX_MULT: Final[float] = 5.0
+
+# --- Phase 5: ZombieProcess + SegFault ---
+ZOMBIE_PROCESS_HP: Final[int] = 6
+ZOMBIE_PROCESS_DAMAGE: Final[int] = 5
+SCORE_PER_KILL_ZOMBIE_PROCESS: Final[int] = 60
+ZOMBIE_REVIVE_HP: Final[int] = 3
+SEGFAULT_HP: Final[int] = 80
+SEGFAULT_DAMAGE: Final[int] = 14
+SEGFAULT_DEPTH: Final[int] = 10
+SCORE_PER_KILL_SEGFAULT: Final[int] = 400

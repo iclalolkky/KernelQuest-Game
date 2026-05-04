@@ -5,13 +5,18 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from kernelquest.core.config import (
+    COMBO_IDLE_RESET_TURNS,
+    COMBO_MAX_MULT,
+    COMBO_MULT_PER_STEP,
     PLAYER_BASE_DAMAGE,
     PLAYER_CACHE_CAPACITY,
     PLAYER_START_CPU_CYCLES,
     PLAYER_START_POSITION,
     PLAYER_START_RAM,
 )
+from kernelquest.entities.daemon import Daemon
 from kernelquest.entities.entity import Entity
+from kernelquest.entities.program import ProgramSlot
 from kernelquest.world.grid import MemoryGrid
 
 
@@ -42,6 +47,14 @@ class Player(Entity):
     base_damage: int = PLAYER_BASE_DAMAGE
     bonus_scan_radius: int = 0
 
+    # Phase 5 — combo, programs, daemons, status flags
+    combo_count: int = 0
+    combo_idle_turns: int = 0
+    next_attack_multiplier: float = 1.0  # consumed by `sudo` etc.
+    programs: list[ProgramSlot] = field(default_factory=list)
+    daemons: list[Daemon] = field(default_factory=list)
+    enemies_skip_turns: int = 0  # `nice` / `niced` etc.
+
     # ----- state queries -----
 
     @property
@@ -52,6 +65,31 @@ class Player(Entity):
     def has_scan_boost(self) -> bool:
         return self.scan_boost_turns > 0
 
+    @property
+    def combo_multiplier(self) -> float:
+        if self.combo_count <= 0:
+            return 1.0
+        mult = 1.0 + COMBO_MULT_PER_STEP * self.combo_count
+        return min(COMBO_MAX_MULT, mult)
+
+    # ----- combo helpers -----
+
+    def register_combo_event(self) -> None:
+        """Bump the combo counter (kill or pickup)."""
+        self.combo_count += 1
+        self.combo_idle_turns = 0
+
+    def break_combo(self) -> None:
+        self.combo_count = 0
+        self.combo_idle_turns = 0
+
+    def tick_combo_idle(self) -> None:
+        if self.combo_count == 0:
+            return
+        self.combo_idle_turns += 1
+        if self.combo_idle_turns >= COMBO_IDLE_RESET_TURNS:
+            self.break_combo()
+
     # ----- mutations -----
 
     def take_damage(self, amount: int, source: str) -> None:
@@ -61,6 +99,8 @@ class Player(Entity):
         self.ram = max(0, self.ram - amount)
         if self.ram == 0 and self.crash_cause is None:
             self.crash_cause = source
+        if amount > 0:
+            self.break_combo()
 
     def heal(self, amount: int) -> None:
         if amount < 0:
@@ -83,6 +123,10 @@ class Player(Entity):
         """Decrement timed status effects by one turn."""
         if self.scan_boost_turns > 0:
             self.scan_boost_turns -= 1
+        for slot in self.programs:
+            slot.tick()
+        if self.enemies_skip_turns > 0:
+            self.enemies_skip_turns -= 1
 
     def end_turn(self) -> None:
         """Refill CPU cycles for the next turn."""

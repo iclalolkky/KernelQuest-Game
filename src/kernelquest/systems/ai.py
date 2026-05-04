@@ -4,7 +4,14 @@ from __future__ import annotations
 
 import random
 
-from kernelquest.entities.malware import KernelPanic, LogicBomb, Malware, SyntaxError_
+from kernelquest.entities.malware import (
+    KernelPanic,
+    LogicBomb,
+    Malware,
+    SegFault,
+    SyntaxError_,
+    ZombieProcess,
+)
 from kernelquest.systems.combat import enemy_attack
 from kernelquest.systems.pathfinding import (
     bfs_next_step,
@@ -16,6 +23,9 @@ from kernelquest.world.world import World
 def run_enemy_turn(world: World, rng: random.Random, damage_multiplier: float = 1.0) -> list[str]:
     """Tick every alive enemy. Returns log messages for each meaningful event."""
     log: list[str] = []
+    if world.player.enemies_skip_turns > 0:
+        log.append("Enemies stalled (nice).")
+        return log
     # Snapshot to avoid mutation during iteration.
     for enemy in list(world.enemies):
         if not enemy.is_alive or not world.player.is_alive:
@@ -32,8 +42,12 @@ def _scaled_damage(base: int, multiplier: float) -> int:
 def _act(enemy: Malware, world: World, rng: random.Random, mult: float) -> list[str]:
     if isinstance(enemy, LogicBomb):
         return _act_logic_bomb(enemy, world, mult)
+    if isinstance(enemy, SegFault):
+        return _act_segfault(enemy, world, rng, mult)
     if isinstance(enemy, KernelPanic):
         return _act_kernel_panic(enemy, world, rng, mult)
+    if isinstance(enemy, ZombieProcess):
+        return _act_zombie_process(enemy, world, rng, mult)
     if isinstance(enemy, SyntaxError_):
         return _act_syntax_error(enemy, world, rng, mult)
     return _step_toward_player(enemy, world)  # pragma: no cover
@@ -126,3 +140,47 @@ def _wander(enemy: Malware, world: World, rng: random.Random) -> list[str]:
         return []
     enemy.position = rng.choice(candidates)
     return []
+
+
+def _act_zombie_process(
+    enemy: ZombieProcess, world: World, rng: random.Random, mult: float
+) -> list[str]:
+    player = world.player
+    if chebyshev_distance(enemy.position, player.position) == 1:
+        dmg = enemy_attack(player, enemy, damage=_scaled_damage(enemy.damage, mult))
+        return [f"{enemy.name} clawed you for {dmg} RAM"]
+    if rng.random() < 0.2:
+        return _wander(enemy, world, rng)
+    return _step_toward_player(enemy, world)
+
+
+def _act_segfault(enemy: SegFault, world: World, rng: random.Random, mult: float) -> list[str]:
+    if enemy.pending_teleport:
+        new_pos = _random_walkable(world, rng, exclude={enemy.position})
+        if new_pos is not None:
+            enemy.position = new_pos
+        enemy.pending_teleport = False
+        return [f"{enemy.name} segfaults to a new address!"]
+
+    player = world.player
+    if chebyshev_distance(enemy.position, player.position) <= 1:
+        dmg = enemy_attack(player, enemy, damage=_scaled_damage(enemy.damage, mult))
+        return [f"{enemy.name} corrupted you for {dmg} RAM"]
+    return _step_toward_player(enemy, world)
+
+
+def _random_walkable(
+    world: World, rng: random.Random, exclude: set[tuple[int, int]]
+) -> tuple[int, int] | None:
+    occupied = world.occupied_positions() | exclude
+    candidates: list[tuple[int, int]] = []
+    for x in range(world.grid.width):
+        for y in range(world.grid.height):
+            if not world.grid.is_walkable(x, y):
+                continue
+            if (x, y) in occupied:
+                continue
+            candidates.append((x, y))
+    if not candidates:
+        return None
+    return rng.choice(candidates)

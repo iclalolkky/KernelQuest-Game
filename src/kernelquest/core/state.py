@@ -15,4 +15,6 @@ class GameState(Enum):
     STATS = auto()
     SHOP = auto()
     SETTINGS = auto()
+    PATCH_PICK = auto()
+    DAILY_BOARD = auto()
     QUIT = auto()

@@ -176,7 +176,13 @@ class UIManager:
 
     # ----- HUD -----
 
-    def render_hud(self, player: Player, sector: int, world: World) -> None:
+    def render_hud(
+        self,
+        player: Player,
+        sector: int,
+        world: World,
+        patches: list[str] | None = None,
+    ) -> None:
         panel_x = WINDOW_WIDTH - 280
         panel_rect = pygame.Rect(panel_x, 16, 264, WINDOW_HEIGHT - 32 - _CONSOLE_HEIGHT)
         # Glassmorphism: translucent panel.
@@ -249,6 +255,57 @@ class UIManager:
             )
             y += 22
 
+        # Combo.
+        if player.combo_count > 0:
+            self._blit_text(
+                f"COMBO   : x{player.combo_multiplier:.2f} ({player.combo_count})",
+                (x, y),
+                theme.NEON_MAGENTA,
+                self.font_body,
+            )
+            y += 22
+
+        # Programs (Q/E/R).
+        if player.programs:
+            self._blit_text("PROGRAMS", (x, y), theme.NEON_CYAN, self.font_small)
+            y += 16
+            hotkeys = ("Q", "E", "R")
+            for idx, slot in enumerate(player.programs[:3]):
+                tag = hotkeys[idx]
+                ready = slot.ready and player.cpu_cycles >= slot.program.cycle_cost
+                color = theme.NEON_GREEN if ready else theme.TEXT_DIM
+                cd = (
+                    f" cd{slot.cooldown_remaining}"
+                    if slot.cooldown_remaining > 0
+                    else f" x{slot.charges}"
+                )
+                self._blit_text(
+                    f"[{tag}] {slot.program.label}{cd}",
+                    (x, y),
+                    color,
+                    self.font_small,
+                )
+                y += 16
+            y += 4
+
+        # Daemons.
+        if player.daemons:
+            self._blit_text("DAEMONS", (x, y), theme.NEON_CYAN, self.font_small)
+            y += 16
+            for d in player.daemons:
+                self._blit_text(f". {d.label}", (x, y), theme.TEXT_DIM, self.font_small)
+                y += 14
+            y += 4
+
+        # Patches.
+        if patches:
+            self._blit_text("PATCHES", (x, y), theme.NEON_CYAN, self.font_small)
+            y += 16
+            for patch_label in patches:
+                self._blit_text(f"+ {patch_label}", (x, y), theme.NEON_AMBER, self.font_small)
+                y += 14
+            y += 4
+
         # Mini-map.
         self._render_minimap(world, (x, y))
         y += world.grid.height * HUD_MINIMAP_TILE + 12
@@ -256,6 +313,7 @@ class UIManager:
         hints = [
             "[↑/↓/←/→] move / attack",
             "[space]    wait",
+            "[Q/E/R]    programs",
             "[1..9]     use cache slot",
             "[esc]      quit run",
         ]
@@ -332,6 +390,72 @@ class UIManager:
                 self._blit_text(line, (cx - 360, 152 + i * 24), theme.TEXT_PRIMARY, self.font_body)
 
         self._blit_back_hint()
+
+    def render_daily_board(self, date_iso: str, rows: list[tuple[str, int, int, str, str]]) -> None:
+        self.clear()
+        cx = WINDOW_WIDTH // 2
+        title = self.font_title.render("DAILY BOARD", True, theme.NEON_MAGENTA)
+        self.screen.blit(title, title.get_rect(center=(cx, 60)))
+        sub = self.font_body.render(date_iso, True, theme.TEXT_DIM)
+        self.screen.blit(sub, sub.get_rect(center=(cx, 100)))
+
+        if not rows:
+            empty = self.font_body.render("No daily runs yet. Be the first!", True, theme.TEXT_DIM)
+            self.screen.blit(empty, empty.get_rect(center=(cx, WINDOW_HEIGHT // 2)))
+        else:
+            header = "{:<4}{:<18}{:>8}{:>8}  {:<14}{}".format(
+                "#", "PROCESS", "SCORE", "DEPTH", "CRASH", "WHEN"
+            )
+            self._blit_text(header, (cx - 360, 140), theme.NEON_AMBER, self.font_body)
+            for i, row in enumerate(rows):
+                name, score, depth, cause, when = row
+                line = "{:<4}{:<18}{:>8}{:>8}  {:<14}{}".format(
+                    f"{i + 1}.", name[:16], score, depth, cause[:12], when[:16]
+                )
+                self._blit_text(line, (cx - 360, 172 + i * 24), theme.TEXT_PRIMARY, self.font_body)
+
+        self._blit_back_hint()
+
+    def render_patch_pick(self, choices: list[tuple[str, str]], selected: int) -> None:
+        self.clear()
+        cx = WINDOW_WIDTH // 2
+        title = self.font_title.render("APPLY PATCH", True, theme.NEON_AMBER)
+        self.screen.blit(title, title.get_rect(center=(cx, 60)))
+        sub = self.font_body.render(
+            "Choose 1 of 3 modifiers for the new sector", True, theme.TEXT_DIM
+        )
+        self.screen.blit(sub, sub.get_rect(center=(cx, 100)))
+
+        card_w = 280
+        card_h = 220
+        gap = 24
+        total_w = card_w * len(choices) + gap * (len(choices) - 1)
+        start_x = (WINDOW_WIDTH - total_w) // 2
+        top_y = 160
+        for idx, (label, desc) in enumerate(choices):
+            rect = pygame.Rect(start_x + idx * (card_w + gap), top_y, card_w, card_h)
+            color = theme.NEON_AMBER if idx == selected else theme.TEXT_DIM
+            pygame.draw.rect(self.screen, color, rect, width=2, border_radius=10)
+            self._blit_text(label, (rect.x + 16, rect.y + 16), theme.NEON_CYAN, self.font_body)
+            # Wrap description.
+            words = desc.split()
+            line = ""
+            line_y = rect.y + 56
+            for w in words:
+                test = (line + " " + w).strip()
+                if self.font_small.size(test)[0] > card_w - 32:
+                    self._blit_text(
+                        line, (rect.x + 16, line_y), theme.TEXT_PRIMARY, self.font_small
+                    )
+                    line_y += 18
+                    line = w
+                else:
+                    line = test
+            if line:
+                self._blit_text(line, (rect.x + 16, line_y), theme.TEXT_PRIMARY, self.font_small)
+
+        hint = self.font_body.render("[←/→] choose      [Enter] apply", True, theme.TEXT_DIM)
+        self.screen.blit(hint, hint.get_rect(center=(cx, top_y + card_h + 60)))
 
     def render_stats(
         self,

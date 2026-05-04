@@ -21,9 +21,17 @@ from kernelquest.core.config import (
     ROOM_MAX_ATTEMPTS,
     ROOM_MAX_SIZE,
     ROOM_MIN_SIZE,
+    SEGFAULT_DEPTH,
 )
 from kernelquest.entities.items import ALL_ITEM_IDS
-from kernelquest.entities.malware import KernelPanic, LogicBomb, Malware, SyntaxError_
+from kernelquest.entities.malware import (
+    KernelPanic,
+    LogicBomb,
+    Malware,
+    SegFault,
+    SyntaxError_,
+    ZombieProcess,
+)
 from kernelquest.entities.player import Player
 from kernelquest.world.grid import MemoryGrid
 from kernelquest.world.tile import TileType
@@ -175,7 +183,10 @@ def _spawn_enemies(
     if depth >= KERNEL_PANIC_DEPTH and depth % KERNEL_PANIC_DEPTH == 0:
         for pos in candidate_positions:
             if pos not in occupied:
-                enemies.append(KernelPanic(position=pos))
+                if depth >= SEGFAULT_DEPTH and depth % SEGFAULT_DEPTH == 0:
+                    enemies.append(SegFault(position=pos))
+                else:
+                    enemies.append(KernelPanic(position=pos))
                 occupied.add(pos)
                 break
 
@@ -186,7 +197,9 @@ def _spawn_enemies(
             continue
         roll = rng.random()
         enemy: Malware
-        if depth >= 2 and roll < 0.25:
+        if depth >= 4 and roll < 0.10:
+            enemy = ZombieProcess(position=pos)
+        elif depth >= 2 and roll < 0.25:
             enemy = LogicBomb(position=pos)
         else:
             enemy = SyntaxError_(position=pos)

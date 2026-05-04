@@ -154,14 +154,14 @@ This roadmap breaks the project into four phases, each with concrete, testable d
 **Goal:** Move beyond plain bump-combat into a snappier, more replayable loop. Inspired by *Balatro*-style synergies, snappy feedback, and the joy of stacking small modifiers.
 
 ### 5.1 Data hygiene (carry-over fix)
-- [ ] One-time migration: backfill `runs` from any pre-Phase-4 `scores` rows so Stats screen matches High Scores.
-- [ ] `RunRepository.best()` falls back to `ScoreRepository.top_n(1)` when `runs` is empty.
+- [x] One-time migration: backfill `runs` from any pre-Phase-4 `scores` rows so Stats screen matches High Scores.
+- [x] `RunRepository.best()` falls back to `ScoreRepository.top_n(1)` when `runs` is empty.
 
 ### 5.2 Programs (deck of active abilities)
-- [ ] New entity: `Program` — a card-like usable with cooldown, charges, and a short flavor name (`fork()`, `kill -9`, `sudo`, `grep`, `nice`, `nohup`, `chmod +x`).
-- [ ] `programs` table + `ProgramRepository` (id, key, level, slot).
-- [ ] Loadout slot bar (3 active programs, hotkeys **Q / E / R**).
-- [ ] Effects examples:
+- [x] New entity: `Program` — a card-like usable with cooldown, charges, and a short flavor name (`fork()`, `kill -9`, `sudo`, `grep`, `nice`, `nohup`, `chmod +x`).
+- [x] `programs` table + `ProgramRepository` (id, key, level, slot).
+- [x] Loadout slot bar (3 active programs, hotkeys **Q / E / R**).
+- [x] Effects examples:
   - `fork()` — spawn a 1-turn decoy clone that draws aggro.
   - `kill -9` — instakill a non-boss adjacent enemy, large cycle cost.
   - `sudo` — next attack deals 3× damage.
@@ -169,10 +169,10 @@ This roadmap breaks the project into four phases, each with concrete, testable d
   - `nice` — skip enemy turn for 2 turns.
 
 ### 5.3 Daemons (passive modifiers — the "Joker" slot)
-- [ ] New entity: `Daemon` — passive process that buffs the player while equipped.
-- [ ] `daemons` table; up to **5** equipped slots, drag-and-drop reorder.
-- [ ] Synergy tags: `arithmetic`, `io`, `network`, `memory`, `signal` — daemons that share tags trigger combo bonuses.
-- [ ] Examples:
+- [x] New entity: `Daemon` — passive process that buffs the player while equipped.
+- [x] `daemons` table; up to **5** equipped slots, drag-and-drop reorder.
+- [x] Synergy tags: `arithmetic`, `io`, `network`, `memory`, `signal` — daemons that share tags trigger combo bonuses.
+- [x] Examples:
   - `cron` — every 10 turns, restore 5 RAM.
   - `swapd` — convert overflow RAM into bonus score on pickup.
   - `oom-killer` — when RAM < 20%, deal AoE damage.
@@ -180,22 +180,22 @@ This roadmap breaks the project into four phases, each with concrete, testable d
   - `niced` — +1 cycle per turn while no enemy is in FoV.
 
 ### 5.4 Combo / chain scoring
-- [ ] Score formula: `base × multiplier`. Multiplier grows when consecutive turns chain (kill → pickup → kill).
-- [ ] Big visible multiplier widget (Balatro-style: `× 4.20`) that pops/scales on increase.
-- [ ] Chain breaks on damage taken or 3+ idle turns.
+- [x] Score formula: `base × multiplier`. Multiplier grows when consecutive turns chain (kill → pickup → kill).
+- [x] Big visible multiplier widget (Balatro-style: `× 4.20`) that pops/scales on increase.
+- [x] Chain breaks on damage taken or 3+ idle turns.
 
 ### 5.5 Run-modifier "Patch Notes"
-- [ ] Between sectors, offer 3 random **Patch** cards (pick one): `+10% damage`, `enemies -1 HP but +1 speed`, `double item drops, half RAM regen`, etc.
-- [ ] `patches` table; selected patches persist for the run, render as small chips in the HUD.
+- [x] Between sectors, offer 3 random **Patch** cards (pick one): `+10% damage`, `enemies -1 HP but +1 speed`, `double item drops, half RAM regen`, etc.
+- [x] `patches` table; selected patches persist for the run, render as small chips in the HUD.
 
 ### 5.6 Boss & elite variety
-- [ ] Add elite mob type: `ZombieProcess` (revives once after death).
-- [ ] Add second boss: `SegFault` — teleports, splits the grid into two halves.
-- [ ] Each boss drops a guaranteed Daemon.
+- [x] Add elite mob type: `ZombieProcess` (revives once after death).
+- [x] Add second boss: `SegFault` — teleports, splits the grid into two halves.
+- [x] Each boss drops a guaranteed Daemon.
 
 ### 5.7 Daily seed challenge (promoted from stretch goals)
-- [ ] Date-based seed; same dungeon for everyone that day.
-- [ ] Local-only daily leaderboard table.
+- [x] Date-based seed; same dungeon for everyone that day.
+- [x] Local-only daily leaderboard table.
 
 **Exit criteria:** A run feels different every time because of the daemons + patches stacked on it; the multiplier widget makes a successful chain feel earned.
 

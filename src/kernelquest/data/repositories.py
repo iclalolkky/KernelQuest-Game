@@ -152,6 +152,26 @@ class RunRepository:
             return None
         return RunRecord(**dict(row))
 
+    def best_with_score_fallback(self, scores: ScoreRepository) -> RunRecord | None:
+        """Best run; if `runs` is empty, synthesize from the top score row."""
+        existing = self.best()
+        if existing is not None:
+            return existing
+        top = scores.top_n(1)
+        if not top:
+            return None
+        s = top[0]
+        return RunRecord(
+            id=-1,
+            player_name=s.player_name,
+            seed=0,
+            depth_reached=s.depth_reached,
+            total_score=s.total_score,
+            crash_cause=s.crash_cause,
+            duration_ms=0,
+            timestamp=s.timestamp,
+        )
+
 
 class MetaRepository:
     """Generic key/value store for cross-run state (e.g. `bits`, settings)."""
@@ -223,3 +243,113 @@ class UpgradeRepository:
         for upgrade in CATALOG:
             levels.setdefault(upgrade.key, 0)
         return levels
+
+
+class DaemonRepository:
+    """Owned + equipped daemons persisted across runs."""
+
+    def __init__(self, database: Database) -> None:
+        self._db = database
+
+    def owned(self) -> set[str]:
+        rows = self._db.connection.execute("SELECT key FROM owned_daemons;").fetchall()
+        return {row["key"] for row in rows}
+
+    def grant(self, key: str) -> None:
+        with self._db.connection:
+            self._db.connection.execute(
+                "INSERT OR IGNORE INTO owned_daemons (key) VALUES (?);", (key,)
+            )
+
+    def equipped(self) -> list[str]:
+        rows = self._db.connection.execute(
+            "SELECT key FROM equipped_daemons ORDER BY slot ASC;"
+        ).fetchall()
+        return [row["key"] for row in rows]
+
+    def set_equipped(self, keys: list[str]) -> None:
+        with self._db.connection:
+            self._db.connection.execute("DELETE FROM equipped_daemons;")
+            for slot, key in enumerate(keys):
+                self._db.connection.execute(
+                    "INSERT INTO equipped_daemons (slot, key) VALUES (?, ?);",
+                    (slot, key),
+                )
+
+
+@dataclass(frozen=True)
+class DailyRunRecord:
+    """A row in the `daily_runs` table."""
+
+    id: int
+    run_date: str
+    player_name: str
+    seed: int
+    depth_reached: int
+    total_score: int
+    crash_cause: str
+    duration_ms: int
+    timestamp: str
+
+
+class DailyRunRepository:
+    """CRUD for the date-locked daily challenge runs."""
+
+    def __init__(self, database: Database) -> None:
+        self._db = database
+
+    def insert(
+        self,
+        run_date: str,
+        player_name: str,
+        seed: int,
+        depth_reached: int,
+        total_score: int,
+        crash_cause: str,
+        duration_ms: int,
+    ) -> int:
+        with self._db.connection:
+            cursor = self._db.connection.execute(
+                """
+                INSERT INTO daily_runs
+                    (run_date, player_name, seed, depth_reached,
+                     total_score, crash_cause, duration_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?);
+                """,
+                (
+                    run_date,
+                    player_name,
+                    seed,
+                    depth_reached,
+                    total_score,
+                    crash_cause,
+                    duration_ms,
+                ),
+            )
+        rowid = cursor.lastrowid
+        if rowid is None:  # pragma: no cover
+            raise RuntimeError("INSERT did not return a lastrowid")
+        return rowid
+
+    def top_for_date(self, run_date: str, n: int = 10) -> list[DailyRunRecord]:
+        if n < 0:
+            raise ValueError("n must be non-negative")
+        rows = self._db.connection.execute(
+            """
+            SELECT id, run_date, player_name, seed, depth_reached, total_score,
+                   crash_cause, duration_ms, timestamp
+              FROM daily_runs
+             WHERE run_date = ?
+             ORDER BY total_score DESC, depth_reached DESC, timestamp ASC
+             LIMIT ?;
+            """,
+            (run_date, n),
+        ).fetchall()
+        return [DailyRunRecord(**dict(row)) for row in rows]
+
+    def has_played(self, run_date: str, player_name: str) -> bool:
+        row = self._db.connection.execute(
+            "SELECT 1 FROM daily_runs WHERE run_date = ? AND player_name = ? LIMIT 1;",
+            (run_date, player_name),
+        ).fetchone()
+        return row is not None
