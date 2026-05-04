@@ -9,16 +9,26 @@ from kernelquest.core.config import (
     WINDOW_HEIGHT,
     WINDOW_WIDTH,
 )
+from kernelquest.entities.items import get_item
+from kernelquest.entities.malware import KernelPanic, LogicBomb, Malware, SyntaxError_
 from kernelquest.entities.player import Player
 from kernelquest.ui import theme
 from kernelquest.ui.viewport import Viewport
 from kernelquest.world.grid import MemoryGrid
 from kernelquest.world.tile import TileType
+from kernelquest.world.world import World
 
 _TILE_COLORS: dict[TileType, tuple[int, int, int]] = {
     TileType.EMPTY: theme.TILE_EMPTY,
     TileType.SYSTEM_DATA: theme.TILE_SYSTEM_DATA,
     TileType.BAD_SECTOR: theme.TILE_BAD_SECTOR,
+    TileType.EXIT: theme.TILE_EXIT,
+}
+
+_ITEM_COLORS: dict[str, tuple[int, int, int]] = {
+    "gc": theme.ITEM_GC,
+    "opt": theme.ITEM_OPTIMIZATION,
+    "scan": theme.ITEM_SCAN_BOOST,
 }
 
 
@@ -41,6 +51,12 @@ class UIManager:
 
     # ----- world rendering -----
 
+    def render_world(self, world: World, viewport: Viewport) -> None:
+        self.render_grid(world.grid, viewport)
+        self.render_items(world, viewport)
+        self.render_enemies(world, viewport)
+        self.render_player(world.player, viewport)
+
     def render_grid(self, grid: MemoryGrid, viewport: Viewport) -> None:
         for y in range(grid.height):
             for x in range(grid.width):
@@ -50,12 +66,54 @@ class UIManager:
                 pygame.draw.rect(self.screen, _TILE_COLORS[tile], rect)
                 pygame.draw.rect(self.screen, theme.GRID_LINE, rect, 1)
 
+    def render_items(self, world: World, viewport: Viewport) -> None:
+        for (x, y), item_id in world.items.items():
+            sx, sy = viewport.to_screen(x, y)
+            cx = sx + viewport.tile_size // 2
+            cy = sy + viewport.tile_size // 2
+            color = _ITEM_COLORS.get(item_id, theme.NEON_CYAN)
+            pygame.draw.circle(self.screen, color, (cx, cy), viewport.tile_size // 4)
+            label = get_item(item_id).short_label
+            surface = self.font_small.render(label, True, theme.BACKGROUND)
+            self.screen.blit(surface, surface.get_rect(center=(cx, cy)))
+
+    def render_enemies(self, world: World, viewport: Viewport) -> None:
+        for enemy in world.enemies:
+            if not enemy.is_alive:
+                continue
+            self._render_enemy(enemy, viewport)
+
+    def _render_enemy(self, enemy: Malware, viewport: Viewport) -> None:
+        sx, sy = viewport.to_screen(*enemy.position)
+        rect = pygame.Rect(sx + 4, sy + 4, viewport.tile_size - 8, viewport.tile_size - 8)
+        if isinstance(enemy, KernelPanic):
+            color = theme.ENEMY_KERNEL_PANIC
+        elif isinstance(enemy, LogicBomb):
+            color = theme.ENEMY_LOGIC_BOMB
+        elif isinstance(enemy, SyntaxError_):
+            color = theme.ENEMY_SYNTAX_ERROR
+        else:
+            color = theme.NEON_AMBER
+        pygame.draw.rect(self.screen, color, rect, border_radius=4)
+        pygame.draw.rect(self.screen, theme.BACKGROUND, rect, width=1, border_radius=4)
+
+        # HP pip strip above the sprite.
+        pip_count = max(1, min(8, enemy.max_hp // 4))
+        pip_w = (viewport.tile_size - 8) // pip_count
+        filled = int(round(pip_count * (enemy.hp / max(1, enemy.max_hp))))
+        for i in range(pip_count):
+            pip_color = color if i < filled else theme.PANEL_BG
+            pip_rect = pygame.Rect(sx + 4 + i * pip_w, sy + 1, max(2, pip_w - 1), 3)
+            pygame.draw.rect(self.screen, pip_color, pip_rect)
+
     def render_player(self, player: Player, viewport: Viewport) -> None:
         sx, sy = viewport.to_screen(*player.position)
         center = (sx + viewport.tile_size // 2, sy + viewport.tile_size // 2)
         radius = viewport.tile_size // 2 - 4
         pygame.draw.circle(self.screen, theme.PLAYER_COLOR, center, radius)
         pygame.draw.circle(self.screen, theme.NEON_CYAN, center, radius, 2)
+        if player.has_scan_boost:
+            pygame.draw.circle(self.screen, theme.ITEM_SCAN_BOOST, center, radius + 4, 1)
 
     # ----- HUD -----
 
@@ -108,20 +166,47 @@ class UIManager:
         )
         y += 28
 
+        self._blit_text(f"SCORE   : {player.score}", (x, y), theme.TEXT_PRIMARY, self.font_body)
+        y += 28
+
+        # Cache slots.
         self._blit_text(
             f"CACHE   : {len(player.cache)}/{player.cache_capacity}",
             (x, y),
             theme.TEXT_PRIMARY,
             self.font_body,
         )
-        y += 28
-        self._blit_text(f"SCORE   : {player.score}", (x, y), theme.TEXT_PRIMARY, self.font_body)
+        y += 22
+        for i, item_id in enumerate(player.cache):
+            item = get_item(item_id)
+            color = _ITEM_COLORS.get(item_id, theme.NEON_CYAN)
+            slot_rect = pygame.Rect(x + (i % 8) * 28, y + (i // 8) * 28, 24, 24)
+            pygame.draw.rect(self.screen, color, slot_rect, border_radius=4)
+            label = self.font_small.render(item.short_label, True, theme.BACKGROUND)
+            self.screen.blit(label, label.get_rect(center=slot_rect.center))
+            slot_index = self.font_small.render(f"{i + 1}", True, theme.TEXT_DIM)
+            self.screen.blit(slot_index, (slot_rect.x, slot_rect.bottom + 2))
+        y += 60
+
+        if player.has_scan_boost:
+            self._blit_text(
+                f"SCAN+   : {player.scan_boost_turns}t",
+                (x, y),
+                theme.ITEM_SCAN_BOOST,
+                self.font_body,
+            )
+            y += 22
 
         # Controls hint at bottom of panel.
-        hint_y = panel_rect.bottom - 80
-        self._blit_text("[↑/↓/←/→] move", (x, hint_y), theme.TEXT_DIM, self.font_small)
-        self._blit_text("[space]    wait", (x, hint_y + 18), theme.TEXT_DIM, self.font_small)
-        self._blit_text("[esc]      quit", (x, hint_y + 36), theme.TEXT_DIM, self.font_small)
+        hint_y = panel_rect.bottom - 132
+        hints = [
+            "[↑/↓/←/→] move / attack",
+            "[space]    wait",
+            "[1..9]     use cache slot",
+            "[esc]      quit run",
+        ]
+        for offset, text in enumerate(hints):
+            self._blit_text(text, (x, hint_y + offset * 18), theme.TEXT_DIM, self.font_small)
 
     # ----- screens -----
 

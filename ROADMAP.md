@@ -53,31 +53,31 @@ This roadmap breaks the project into four phases, each with concrete, testable d
 
 ---
 
-## Phase 2 — Procedural Generation & Combat
+## Phase 2 — Procedural Generation & Combat ✅
 
 **Goal:** Replayable, dangerous runs.
 
 ### 2.1 Procedural grid
-- [ ] Seedable RNG (`random.Random(seed)`); record seed in run metadata.
-- [ ] Generation algorithm (rooms + corridors **or** cellular automata) with reachability validation.
-- [ ] Increase difficulty with depth (more enemies, denser obstacles).
+- [x] Seedable RNG (`random.Random(seed)`); record seed in run metadata.
+- [x] Generation algorithm (rooms + corridors **or** cellular automata) with reachability validation.
+- [x] Increase difficulty with depth (more enemies, denser obstacles).
 
 ### 2.2 Enemies
-- [ ] `Malware` base class with `hp`, `damage`, `take_turn(world)`.
-- [ ] `SyntaxError`: random/patrol movement.
-- [ ] `LogicBomb`: charges player, AoE detonation when adjacent.
-- [ ] `KernelPanic` (boss): multi-phase pattern, larger footprint.
-- [ ] Basic pathfinding (BFS or A*) toward player.
+- [x] `Malware` base class with `hp`, `damage`, `take_turn(world)`.
+- [x] `SyntaxError`: random/patrol movement.
+- [x] `LogicBomb`: charges player, AoE detonation when adjacent.
+- [x] `KernelPanic` (boss): multi-phase pattern, larger footprint.
+- [x] Basic pathfinding (BFS or A*) toward player.
 
 ### 2.3 Combat
-- [ ] Bump-to-attack on adjacent enemy.
-- [ ] Damage application + death cleanup.
-- [ ] Loot drops → added to `Player.cache`.
-- [ ] **Game Over:** RAM ≤ 0 → record crash cause (enemy class name).
+- [x] Bump-to-attack on adjacent enemy.
+- [x] Damage application + death cleanup.
+- [x] Loot drops → added to `Player.cache`.
+- [x] **Game Over:** RAM ≤ 0 → record crash cause (enemy class name).
 
 ### 2.4 Items & cache
-- [ ] Item types: `GarbageCollector` (restore RAM), `Optimization` (refund cycles), `ScanBoost` (extend FoV).
-- [ ] Inventory UI; `use_item(slot)`.
+- [x] Item types: `GarbageCollector` (restore RAM), `Optimization` (refund cycles), `ScanBoost` (extend FoV).
+- [x] Inventory UI; `use_item(slot)`.
 
 **Exit criteria:** Death is possible and meaningful; depth, score, and crash cause are recorded.
 

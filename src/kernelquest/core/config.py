@@ -31,6 +31,40 @@ PLAYER_START_POSITION: Final[tuple[int, int]] = (1, 1)
 PLAYER_BASE_DAMAGE: Final[int] = 10
 BAD_SECTOR_DAMAGE: Final[int] = 5
 
+# --- Procedural generation ---
+ROOM_MIN_SIZE: Final[int] = 4
+ROOM_MAX_SIZE: Final[int] = 7
+ROOM_MAX_ATTEMPTS: Final[int] = 30
+BAD_SECTORS_PER_LEVEL: Final[int] = 3
+
+# --- Enemies (per-class base stats) ---
+SYNTAX_ERROR_HP: Final[int] = 8
+SYNTAX_ERROR_DAMAGE: Final[int] = 4
+LOGIC_BOMB_HP: Final[int] = 12
+LOGIC_BOMB_DAMAGE: Final[int] = 18
+LOGIC_BOMB_RADIUS: Final[int] = 1
+KERNEL_PANIC_HP: Final[int] = 60
+KERNEL_PANIC_DAMAGE: Final[int] = 12
+KERNEL_PANIC_PHASE_THRESHOLD: Final[float] = 0.5
+
+# --- Spawning per depth ---
+ENEMIES_BASE_COUNT: Final[int] = 3
+ITEMS_BASE_COUNT: Final[int] = 2
+LOOT_DROP_CHANCE: Final[float] = 0.35
+KERNEL_PANIC_DEPTH: Final[int] = 5
+
+# --- Item effects ---
+GC_HEAL_AMOUNT: Final[int] = 25
+OPTIMIZATION_CYCLES: Final[int] = 3
+SCAN_BOOST_TURNS: Final[int] = 5
+
+# --- Score rewards ---
+SCORE_PER_MOVE: Final[int] = 1
+SCORE_PER_KILL_SYNTAX_ERROR: Final[int] = 25
+SCORE_PER_KILL_LOGIC_BOMB: Final[int] = 50
+SCORE_PER_KILL_KERNEL_PANIC: Final[int] = 250
+SCORE_PER_DESCENT: Final[int] = 100
+
 # --- Persistence ---
 DATABASE_FILENAME: Final[str] = "database.db"
 

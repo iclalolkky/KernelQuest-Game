@@ -11,6 +11,7 @@ class TileType(Enum):
     EMPTY = auto()
     SYSTEM_DATA = auto()  # impassable wall
     BAD_SECTOR = auto()  # walkable but harmful
+    EXIT = auto()  # descend to next sector
 
     @property
     def walkable(self) -> bool:

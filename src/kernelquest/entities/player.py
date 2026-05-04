@@ -37,12 +37,17 @@ class Player(Entity):
     score: int = 0
     depth_reached: int = 1
     crash_cause: str | None = None
+    scan_boost_turns: int = 0
 
     # ----- state queries -----
 
     @property
     def is_alive(self) -> bool:
         return self.ram > 0
+
+    @property
+    def has_scan_boost(self) -> bool:
+        return self.scan_boost_turns > 0
 
     # ----- mutations -----
 
@@ -59,9 +64,33 @@ class Player(Entity):
             raise ValueError("heal amount must be non-negative")
         self.ram = min(self.max_ram, self.ram + amount)
 
+    def grant_cycles(self, amount: int) -> None:
+        """Add cycles to the current turn budget (capped at max)."""
+        if amount < 0:
+            raise ValueError("cycle amount must be non-negative")
+        self.cpu_cycles = min(self.max_cpu_cycles, self.cpu_cycles + amount)
+
+    def grant_scan_boost(self, turns: int) -> None:
+        """Stack additional scan-boost turns onto the player."""
+        if turns < 0:
+            raise ValueError("turns must be non-negative")
+        self.scan_boost_turns += turns
+
+    def tick_status_effects(self) -> None:
+        """Decrement timed status effects by one turn."""
+        if self.scan_boost_turns > 0:
+            self.scan_boost_turns -= 1
+
     def end_turn(self) -> None:
         """Refill CPU cycles for the next turn."""
         self.cpu_cycles = self.max_cpu_cycles
+
+    def spend_cycle(self) -> bool:
+        """Consume a single CPU cycle. Returns ``False`` if none available."""
+        if not self.is_alive or self.cpu_cycles <= 0:
+            return False
+        self.cpu_cycles -= 1
+        return True
 
     def try_move(self, dx: int, dy: int, grid: MemoryGrid) -> bool:
         """Attempt to move by `(dx, dy)`.

@@ -17,6 +17,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
   - `ui/`: `theme` palette, `Viewport` (centered grid), `UIManager` rendering grid, player, HUD, menu, and game-over screens.
   - `data/`: `Database` with idempotent migrations, `ScoreRepository` (`insert`, `top_n`, `all`).
   - 24 unit tests across grid, player, database.
+- **Phase 2 — Procedural Generation & Combat (complete).**
+  - `world/generator.py`: deterministic rooms-and-corridors generator with reachability, depth-scaled difficulty, and an `EXIT` tile that descends to the next sector.
+  - `world/world.py`: `World` aggregate (grid + player + enemies + items) with `enemy_at`, `is_blocked`, `remove_dead_enemies`.
+  - `entities/malware.py`: `Malware` base + `SyntaxError`, `LogicBomb` (AoE), and `KernelPanic` (two-phase boss).
+  - `entities/items.py`: `GarbageCollector`, `Optimization`, `ScanBoost` consumables with a typed registry.
+  - `systems/`: `pathfinding` (BFS), `combat` (bump-attack, loot rolls, score), `ai` (per-enemy turn dispatcher), `inventory` (pickup + cache slot use).
+  - `ui/renderer.py`: renders enemies (with HP pips), items, EXIT tile, scan-boost overlay, and a numbered cache strip in the HUD.
+  - `core/engine.py`: refactored to drive the new `World`, run AI when cycles deplete, descend on `EXIT`, and handle 1-9 cache hotkeys.
+  - 33 new unit tests covering generator, malware, pathfinding, combat, items, inventory, world, and AI behavior.
 - Initial project documentation: `README.md`, `ROADMAP.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, `AGENTS.md`.
 - Product spec: `docs/PRD_AND_ARCH.md`.
 
