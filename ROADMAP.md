@@ -6,18 +6,18 @@ This roadmap breaks the project into four phases, each with concrete, testable d
 
 ---
 
-## Phase 0 — Project Bootstrapping
+## Phase 0 — Project Bootstrapping ✅
 
 **Goal:** A clean, runnable Python project with tooling in place.
 
-- [ ] Initialize `pyproject.toml` (project metadata, deps: `pygame`, dev: `pytest`, `ruff`, `black`, `mypy`).
-- [ ] Create `src/kernelquest/` package layout.
-- [ ] Add `.gitignore` (Python, venv, IDE, SQLite db files, asset caches).
-- [ ] Add `.editorconfig`.
-- [ ] Configure `ruff` + `black` + `mypy` in `pyproject.toml`.
-- [ ] Add a smoke test that imports the package.
-- [ ] CI: GitHub Actions workflow running `ruff`, `pytest`, `mypy` on push/PR.
-- [ ] `LICENSE` (MIT) and updated `README.md`.
+- [x] Initialize `pyproject.toml` (project metadata, deps: `pygame`, dev: `pytest`, `ruff`, `black`, `mypy`).
+- [x] Create `src/kernelquest/` package layout.
+- [x] Add `.gitignore` (Python, venv, IDE, SQLite db files, asset caches).
+- [x] Add `.editorconfig`.
+- [x] Configure `ruff` + `black` + `mypy` in `pyproject.toml`.
+- [x] Add a smoke test that imports the package.
+- [x] CI: GitHub Actions workflow running `ruff`, `pytest`, `mypy` on push/PR.
+- [x] `LICENSE` (MIT) and updated `README.md`.
 
 **Exit criteria:** `python -m kernelquest.main` opens an empty Pygame window; `pytest` passes.
 
