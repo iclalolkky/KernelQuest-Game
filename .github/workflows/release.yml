@@ -39,11 +39,16 @@ jobs:
       - name: Build with PyInstaller
         run: pyinstaller kernelquest.spec --noconfirm
 
+      - name: Ad-hoc sign macOS .app
+        if: runner.os == 'macOS'
+        run: |
+          codesign --force --deep --sign - dist/KernelQuest.app
+          codesign --verify --verbose dist/KernelQuest.app
+
       - name: Package macOS .app
         if: runner.os == 'macOS'
         run: |
-          cd dist
-          zip -r -q "../${{ matrix.artifact }}" KernelQuest.app
+          ditto -c -k --sequesterRsrc --keepParent dist/KernelQuest.app "${{ matrix.artifact }}"
 
       - name: Package Windows .exe
         if: runner.os == 'Windows'
