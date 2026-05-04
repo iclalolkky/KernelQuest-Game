@@ -70,10 +70,12 @@ def generate_world(
     rng: random.Random,
     width: int = GRID_WIDTH,
     height: int = GRID_HEIGHT,
+    extra_enemies: int = 0,
 ) -> World:
     """Build a fresh `World` for the given depth.
 
-    The same `(seed, depth)` pair always yields the same world.
+    The same `(seed, depth)` pair always yields the same world. ``extra_enemies``
+    is added to the base spawn count (used by Patch Notes like ``Fragmented``).
     """
     grid = _all_walls(width, height)
     rooms = _carve_rooms(grid, rng, width, height)
@@ -93,7 +95,7 @@ def generate_world(
         exit_pos = rooms[-2].center
     grid.set(*exit_pos, TileType.EXIT)
 
-    enemies = _spawn_enemies(rooms, rng, depth, exclude={spawn, exit_pos})
+    enemies = _spawn_enemies(rooms, rng, depth, exclude={spawn, exit_pos}, extra=extra_enemies)
     item_exclude = {spawn, exit_pos, *(e.position for e in enemies)}
     items = _spawn_items(rooms, rng, depth, exclude=item_exclude)
 
@@ -169,9 +171,10 @@ def _spawn_enemies(
     rng: random.Random,
     depth: int,
     exclude: set[tuple[int, int]],
+    extra: int = 0,
 ) -> list[Malware]:
     enemies: list[Malware] = []
-    target_count = ENEMIES_BASE_COUNT + depth
+    target_count = ENEMIES_BASE_COUNT + depth + max(0, extra)
     occupied: set[tuple[int, int]] = set(exclude)
 
     candidate_positions: list[tuple[int, int]] = []

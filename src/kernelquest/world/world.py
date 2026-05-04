@@ -55,6 +55,17 @@ class World:
         """Positions other entities currently sit on (excluding the queried one)."""
         return {e.position for e in self.enemies if e.is_alive} | {self.player.position}
 
+    def living_boss(self) -> Malware | None:
+        """Return the first living boss in this sector, if any."""
+        for enemy in self.enemies:
+            if enemy.is_alive and getattr(enemy, "is_boss", False):
+                return enemy
+        return None
+
+    @property
+    def has_living_boss(self) -> bool:
+        return self.living_boss() is not None
+
     # ----- mutations -----
 
     def remove_dead_enemies(self) -> list[Malware]:

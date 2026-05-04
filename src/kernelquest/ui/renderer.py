@@ -25,25 +25,41 @@ from kernelquest.ui.viewport import Viewport
 from kernelquest.world.tile import TileType
 from kernelquest.world.world import World
 
-_TILE_COLORS: dict[TileType, tuple[int, int, int]] = {
-    TileType.EMPTY: theme.TILE_EMPTY,
-    TileType.SYSTEM_DATA: theme.TILE_SYSTEM_DATA,
-    TileType.BAD_SECTOR: theme.TILE_BAD_SECTOR,
-    TileType.EXIT: theme.TILE_EXIT,
+_TILE_COLOR_KEYS: dict[TileType, str] = {
+    TileType.EMPTY: "TILE_EMPTY",
+    TileType.SYSTEM_DATA: "TILE_SYSTEM_DATA",
+    TileType.BAD_SECTOR: "TILE_BAD_SECTOR",
+    TileType.EXIT: "TILE_EXIT",
 }
 
-_ITEM_COLORS: dict[str, tuple[int, int, int]] = {
-    "gc": theme.ITEM_GC,
-    "opt": theme.ITEM_OPTIMIZATION,
-    "scan": theme.ITEM_SCAN_BOOST,
+_ITEM_COLOR_KEYS: dict[str, str] = {
+    "gc": "ITEM_GC",
+    "opt": "ITEM_OPTIMIZATION",
+    "scan": "ITEM_SCAN_BOOST",
 }
 
-_LEVEL_COLORS: dict[LogLevel, tuple[int, int, int]] = {
-    LogLevel.INFO: theme.NEON_CYAN,
-    LogLevel.WARN: theme.NEON_AMBER,
-    LogLevel.ERROR: (255, 110, 110),
-    LogLevel.CRIT: theme.NEON_MAGENTA,
+_LEVEL_COLOR_KEYS: dict[LogLevel, str] = {
+    LogLevel.INFO: "NEON_CYAN",
+    LogLevel.WARN: "NEON_AMBER",
+    LogLevel.ERROR: "NEON_MAGENTA",
+    LogLevel.CRIT: "NEON_MAGENTA",
 }
+
+
+def _tile_color(tile: TileType) -> tuple[int, int, int]:
+    return getattr(theme, _TILE_COLOR_KEYS[tile])  # type: ignore[no-any-return]
+
+
+def _item_color(item_id: str) -> tuple[int, int, int]:
+    attr = _ITEM_COLOR_KEYS.get(item_id)
+    return getattr(theme, attr) if attr else theme.NEON_CYAN
+
+
+def _level_color(level: LogLevel) -> tuple[int, int, int]:
+    if level is LogLevel.ERROR:
+        return (255, 110, 110)
+    return getattr(theme, _LEVEL_COLOR_KEYS.get(level, "TEXT_PRIMARY"))  # type: ignore[no-any-return]
+
 
 _CONSOLE_HEIGHT = 120
 
@@ -106,7 +122,7 @@ class UIManager:
                 if pos not in world.explored and world.explored:
                     continue
                 tile = grid.get(x, y)
-                base = _TILE_COLORS[tile]
+                base = _tile_color(tile)
                 color = base if pos in world.visible or not world.visible else _dim(base, 0.45)
                 sx, sy = viewport.to_screen(x, y)
                 rect = pygame.Rect(sx, sy, viewport.tile_size, viewport.tile_size)
@@ -120,7 +136,7 @@ class UIManager:
             sx, sy = viewport.to_screen(x, y)
             cx = sx + viewport.tile_size // 2
             cy = sy + viewport.tile_size // 2
-            color = _ITEM_COLORS.get(item_id, theme.NEON_CYAN)
+            color = _item_color(item_id)
             pygame.draw.circle(self.screen, color, (cx, cy), viewport.tile_size // 4)
             label = get_item(item_id).short_label
             surface = self.font_small.render(label, True, theme.BACKGROUND)
@@ -225,7 +241,7 @@ class UIManager:
         self._render_cpu_wave((x, y), player)
         y += HUD_CPU_WAVE_HEIGHT + 6
 
-        self._blit_text(f"SCORE   : {player.score}", (x, y), theme.TEXT_PRIMARY, self.font_body)
+        self._blit_text(f"SCORE   : {player.score:,}", (x, y), theme.TEXT_PRIMARY, self.font_body)
         y += 24
 
         self._blit_text(
@@ -237,7 +253,7 @@ class UIManager:
         y += 22
         for i, item_id in enumerate(player.cache):
             item = get_item(item_id)
-            color = _ITEM_COLORS.get(item_id, theme.NEON_CYAN)
+            color = _item_color(item_id)
             slot_rect = pygame.Rect(x + (i % 8) * 28, y + (i // 8) * 28, 24, 24)
             pygame.draw.rect(self.screen, color, slot_rect, border_radius=4)
             label = self.font_small.render(item.short_label, True, theme.BACKGROUND)
@@ -315,6 +331,7 @@ class UIManager:
             "[space]    wait",
             "[Q/E/R]    programs",
             "[1..9]     use cache slot",
+            "[?]        controls",
             "[esc]      quit run",
         ]
         hint_y = panel_rect.bottom - 18 * len(hints) - 12
@@ -337,7 +354,7 @@ class UIManager:
         visible = entries[-max_lines:]
         y = rect.y + 8
         for entry in visible:
-            color = _LEVEL_COLORS.get(entry.level, theme.TEXT_PRIMARY)
+            color = _level_color(entry.level)
             tag = self.font_small.render(f"[{entry.level.value}]", True, color)
             self.screen.blit(tag, (pad_x, y))
             msg = self.font_small.render(entry.message, True, theme.TEXT_PRIMARY)
@@ -605,6 +622,163 @@ class UIManager:
         self.screen.blit(prompt, prompt.get_rect(center=(cx, cy + 10)))
         self.screen.blit(name_text, name_text.get_rect(center=(cx, cy + 60)))
 
+    # ----- Phase 6 overlays -----
+
+    def render_floating_text(self, system: object, viewport: Viewport) -> None:
+        from kernelquest.ui.fx import FloatingTextSystem
+
+        if not isinstance(system, FloatingTextSystem):
+            return
+        for ft in system.items:
+            sx = viewport.origin_x + int(ft.x * viewport.tile_size)
+            sy = viewport.origin_y + int(ft.y * viewport.tile_size)
+            surf = self.font_small.render(ft.text, True, ft.color)
+            surf.set_alpha(ft.alpha)
+            self.screen.blit(surf, surf.get_rect(center=(sx, sy)))
+
+    def render_boss_hp_bar(self, boss: Malware) -> None:
+        margin = 80
+        bar_w = WINDOW_WIDTH - margin * 2
+        bar_h = 14
+        x = margin
+        y = 10
+        bg = pygame.Surface((bar_w, bar_h), pygame.SRCALPHA)
+        bg.fill((20, 0, 0, 220))
+        self.screen.blit(bg, (x, y))
+        ratio = max(0.0, min(1.0, boss.hp / max(1, boss.max_hp)))
+        fill_w = int(bar_w * ratio)
+        pygame.draw.rect(self.screen, (220, 30, 60), pygame.Rect(x, y, fill_w, bar_h))
+        pygame.draw.rect(self.screen, (255, 80, 100), pygame.Rect(x, y, bar_w, bar_h), width=1)
+        label = self.font_small.render(
+            f"!! BOSS: {boss.crash_label}  {boss.hp}/{boss.max_hp} !!",
+            True,
+            (255, 220, 220),
+        )
+        self.screen.blit(label, label.get_rect(center=(WINDOW_WIDTH // 2, y + bar_h + 12)))
+
+    def render_boss_banner(self, name: str, alpha_factor: float) -> None:
+        alpha = int(255 * max(0.0, min(1.0, alpha_factor)))
+        if alpha <= 0:
+            return
+        text = self.font_title.render(f"!! {name} LOADED !!", True, (255, 60, 80))
+        text.set_alpha(alpha)
+        self.screen.blit(text, text.get_rect(center=(WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2 - 40)))
+        sub = self.font_body.render("EXIT LOCKED — terminate the process", True, (255, 200, 200))
+        sub.set_alpha(alpha)
+        self.screen.blit(sub, sub.get_rect(center=(WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2)))
+
+    def render_glitch_overlay(self, intensity: float) -> None:
+        intensity = max(0.0, min(1.0, intensity))
+        if intensity <= 0.0:
+            return
+        rng = random.Random()
+        slices = int(8 + 24 * intensity)
+        for _ in range(slices):
+            y = rng.randint(0, WINDOW_HEIGHT - 8)
+            h = rng.randint(2, 8)
+            offset = rng.randint(-int(20 * intensity), int(20 * intensity))
+            try:
+                rect = pygame.Rect(0, y, WINDOW_WIDTH, h)
+                strip = self.screen.subsurface(rect).copy()
+                self.screen.blit(strip, (offset, y))
+            except (ValueError, pygame.error):  # pragma: no cover
+                pass
+        # Faint red tint.
+        tint = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
+        tint.fill((255, 0, 30, int(40 * intensity)))
+        self.screen.blit(tint, (0, 0))
+
+    def render_scanlines(self) -> None:
+        overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
+        for y in range(0, WINDOW_HEIGHT, 3):
+            pygame.draw.line(overlay, (0, 0, 0, 50), (0, y), (WINDOW_WIDTH, y))
+        self.screen.blit(overlay, (0, 0))
+
+    def render_help_overlay(self) -> None:
+        overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 200))
+        self.screen.blit(overlay, (0, 0))
+        cx = WINDOW_WIDTH // 2
+        title = self.font_title.render("CONTROLS", True, theme.NEON_CYAN)
+        self.screen.blit(title, title.get_rect(center=(cx, 80)))
+        rows = [
+            "[Arrow keys / WASD] move or attack",
+            "[Space]             wait one turn",
+            "[Q] [E] [R]         fire program slot 1/2/3",
+            "[1..9]              use cache item",
+            "[?] / [F1]          toggle this overlay",
+            "[F11]               toggle fullscreen",
+            "[M]                 toggle mute",
+            "[Esc]               quit run",
+        ]
+        y = 160
+        for r in rows:
+            surf = self.font_body.render(r, True, theme.TEXT_PRIMARY)
+            self.screen.blit(surf, surf.get_rect(center=(cx, y)))
+            y += 30
+        hint = self.font_small.render("Press [?] to dismiss.", True, theme.TEXT_DIM)
+        self.screen.blit(hint, hint.get_rect(center=(cx, WINDOW_HEIGHT - 50)))
+
+    def render_tutorial(self, message: str, step: int, total: int) -> None:
+        self.clear()
+        cx = WINDOW_WIDTH // 2
+        cy = WINDOW_HEIGHT // 2
+        title = self.font_title.render("TUTORIAL", True, theme.NEON_CYAN)
+        self.screen.blit(title, title.get_rect(center=(cx, 100)))
+        progress = self.font_small.render(f"Step {step}/{total}", True, theme.TEXT_DIM)
+        self.screen.blit(progress, progress.get_rect(center=(cx, 140)))
+
+        # Word-wrap the body text.
+        words = message.split(" ")
+        lines: list[str] = []
+        current = ""
+        for w in words:
+            candidate = (current + " " + w).strip() if current else w
+            if self.font_body.size(candidate)[0] < WINDOW_WIDTH - 200:
+                current = candidate
+            else:
+                lines.append(current)
+                current = w
+        if current:
+            lines.append(current)
+        y = cy - len(lines) * 14
+        for ln in lines:
+            surf = self.font_body.render(ln, True, theme.TEXT_PRIMARY)
+            self.screen.blit(surf, surf.get_rect(center=(cx, y)))
+            y += 28
+        hint = self.font_small.render("[enter] next   [esc] skip", True, theme.NEON_AMBER)
+        self.screen.blit(hint, hint.get_rect(center=(cx, WINDOW_HEIGHT - 60)))
+
+    def render_howtoplay(self, lines: list[str], scroll: int) -> None:
+        self.clear()
+        cx = WINDOW_WIDTH // 2
+        title = self.font_title.render("HOW TO PLAY", True, theme.NEON_CYAN)
+        self.screen.blit(title, title.get_rect(center=(cx, 60)))
+        x = 80
+        y = 120
+        line_h = self.font_body.get_height() + 4
+        max_lines = (WINDOW_HEIGHT - 200) // line_h
+        slice_ = lines[scroll : scroll + max_lines]
+        for ln in slice_:
+            color = theme.TEXT_PRIMARY
+            if ln.startswith("# "):
+                color = theme.NEON_CYAN
+                ln = ln[2:]
+            elif ln.startswith("## "):
+                color = theme.NEON_AMBER
+                ln = ln[3:]
+            elif ln.startswith("- "):
+                color = theme.TEXT_DIM
+            surf = self.font_body.render(ln[:120], True, color)
+            self.screen.blit(surf, (x, y))
+            y += line_h
+        hint = self.font_small.render(
+            "[↑/↓] scroll   [pgup/pgdn] page   [esc] back",
+            True,
+            theme.TEXT_DIM,
+        )
+        self.screen.blit(hint, hint.get_rect(center=(cx, WINDOW_HEIGHT - 40)))
+
     # ----- helpers -----
 
     def _blit_text(
@@ -661,7 +835,7 @@ class UIManager:
                 if (x, y) not in world.explored and world.explored:
                     continue
                 tile = world.grid.get(x, y)
-                base = _TILE_COLORS[tile]
+                base = _tile_color(tile)
                 if world.visible and (x, y) not in world.visible:
                     base = _dim(base, 0.55)
                 pygame.draw.rect(self.screen, base, (ox + x * ts, oy + y * ts, ts, ts))

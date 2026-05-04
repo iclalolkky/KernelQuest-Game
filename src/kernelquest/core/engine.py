@@ -50,7 +50,7 @@ from kernelquest.entities.daemon import (
 )
 from kernelquest.entities.malware import Malware, SegFault, ZombieProcess
 from kernelquest.entities.patch import CATALOG as PATCH_CATALOG
-from kernelquest.entities.patch import Patch, PatchState
+from kernelquest.entities.patch import Patch, PatchEffects, PatchState
 from kernelquest.entities.player import Player
 from kernelquest.entities.program import starter_loadout
 from kernelquest.systems.ai import run_enemy_turn
@@ -67,8 +67,9 @@ from kernelquest.systems.daemons import (
 from kernelquest.systems.inventory import pickup_item_at, use_cache_slot
 from kernelquest.systems.programs import execute_program
 from kernelquest.ui import theme
+from kernelquest.ui import themes as themes_mod
 from kernelquest.ui.console_log import ConsoleLog
-from kernelquest.ui.fx import ParticleSystem, ScreenShake
+from kernelquest.ui.fx import FloatingTextSystem, ParticleSystem, ScreenShake
 from kernelquest.ui.renderer import UIManager
 from kernelquest.ui.sfx import SoundManager
 from kernelquest.ui.viewport import Viewport
@@ -84,6 +85,8 @@ _KEY_BITS = "meta.bits"
 _MENU_OPTIONS: tuple[str, ...] = (
     "New Run",
     "Daily Run",
+    "Tutorial",
+    "How to Play",
     "High Scores",
     "Daily Board",
     "Stats",
@@ -129,7 +132,10 @@ class GameEngine:
         self._console = ConsoleLog()
         self._shake = ScreenShake()
         self._particles = ParticleSystem()
+        self._floats = FloatingTextSystem()
         self._sfx: SoundManager | None = None
+        self._screen: pygame.Surface | None = None
+        self._ui: UIManager | None = None
 
         self._settings: Settings = Settings()
         self._menu_index: int = 0
@@ -140,6 +146,15 @@ class GameEngine:
         self._patches: PatchState = PatchState()
         self._patch_choices: list[Patch] = []
         self._patch_pick_index: int = 0
+        # Boss / accessibility / overlay state.
+        self._boss_active: bool = False
+        self._boss_banner_ttl: float = 0.0
+        self._glitch_intensity: float = 0.0
+        self._show_help_overlay: bool = False
+        self._howtoplay_lines: list[str] = []
+        self._howtoplay_scroll: int = 0
+        self._tutorial_step: int = 0
+        self._is_tutorial_run: bool = False
 
     # ----- public entry point -----
 
@@ -160,18 +175,34 @@ class GameEngine:
 
         pygame.init()
         try:
-            screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
+            themes_mod.apply_theme(self._settings.theme)
+            if self._settings.large_text:
+                # Bump font sizes by 25% before UIManager initialises its fonts.
+                theme.FONT_SIZE_SMALL = int(theme.FONT_SIZE_SMALL * 1.25)
+                theme.FONT_SIZE_BODY = int(theme.FONT_SIZE_BODY * 1.25)
+                theme.FONT_SIZE_TITLE = int(theme.FONT_SIZE_TITLE * 1.25)
+            flags = pygame.FULLSCREEN if self._settings.fullscreen else 0
+            screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT), flags)
             pygame.display.set_caption(WINDOW_TITLE)
+            self._screen = screen
             ui = UIManager(screen)
+            self._ui = ui
             self._sfx = SoundManager()
             self._sfx.set_volume(self._settings.volume)
-            self._sfx.start_music()
+            self._sfx.set_music_volume(self._settings.music_volume)
+            self._sfx.set_sfx_volume(self._settings.sfx_volume)
+            self._sfx.set_muted(self._settings.muted)
+            self._sfx.start_music("main")
             clock = pygame.time.Clock()
 
+            # First-launch onboarding nudge.
+            if not settings_module.is_tutorial_done(self._meta):
+                self._console.info("Hint: try the Tutorial from the main menu!")
+
             while self._state is not GameState.QUIT:
-                clock.tick(FPS)
+                dt = clock.tick(FPS) / 1000.0
                 self._handle_events()
-                self._step_fx()
+                self._step_fx(dt)
                 self._render(ui)
         finally:
             if self._sfx is not None:
@@ -183,9 +214,17 @@ class GameEngine:
 
     # ----- per-frame -----
 
-    def _step_fx(self) -> None:
+    def _step_fx(self, dt: float = 0.0) -> None:
+        if self._settings.reduce_motion:
+            self._shake.intensity = 0.0
+            self._particles.clear()
         self._shake.step()
         self._particles.step()
+        self._floats.step()
+        if self._boss_banner_ttl > 0.0:
+            self._boss_banner_ttl = max(0.0, self._boss_banner_ttl - dt)
+        if self._glitch_intensity > 0.0:
+            self._glitch_intensity = max(0.0, self._glitch_intensity - dt * 0.4)
 
     def _handle_events(self) -> None:
         for event in pygame.event.get():
@@ -195,10 +234,29 @@ class GameEngine:
             if event.type != pygame.KEYDOWN:
                 continue
 
+            # Global hotkeys (work in every state).
+            if event.key == pygame.K_F11:
+                self._settings.toggle_fullscreen()
+                self._apply_display_mode()
+                continue
+            if (
+                event.key == pygame.K_m
+                and event.mod & (pygame.KMOD_CTRL | pygame.KMOD_META) == 0
+                and self._state is not GameState.GAME_OVER
+            ):
+                self._settings.toggle_mute()
+                if self._sfx is not None:
+                    self._sfx.set_muted(self._settings.muted)
+                continue
+
             if self._state is GameState.MENU:
                 self._handle_menu_key(event)
             elif self._state is GameState.PLAYING:
                 self._handle_playing_key(event)
+            elif self._state is GameState.TUTORIAL:
+                self._handle_tutorial_key(event)
+            elif self._state is GameState.HOWTOPLAY:
+                self._handle_howtoplay_key(event)
             elif self._state is GameState.GAME_OVER:
                 self._handle_game_over_key(event)
             elif self._state in (GameState.HIGH_SCORES, GameState.STATS, GameState.DAILY_BOARD):
@@ -209,6 +267,15 @@ class GameEngine:
                 self._handle_settings_key(event)
             elif self._state is GameState.PATCH_PICK:
                 self._handle_patch_pick_key(event)
+
+    def _apply_display_mode(self) -> None:
+        flags = pygame.FULLSCREEN if self._settings.fullscreen else 0
+        try:
+            self._screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT), flags)
+            if self._ui is not None:
+                self._ui.screen = self._screen
+        except pygame.error as exc:  # pragma: no cover
+            log.warning("Failed to toggle display mode: %s", exc)
 
     def _handle_menu_key(self, event: pygame.event.Event) -> None:
         if event.key == pygame.K_ESCAPE:
@@ -227,6 +294,10 @@ class GameEngine:
             self._start_new_run(daily=False)
         elif choice == "Daily Run":
             self._start_new_run(daily=True)
+        elif choice == "Tutorial":
+            self._start_tutorial()
+        elif choice == "How to Play":
+            self._open_howtoplay()
         elif choice == "High Scores":
             self._state = GameState.HIGH_SCORES
         elif choice == "Daily Board":
@@ -264,23 +335,74 @@ class GameEngine:
             settings_module.save(self._meta, self._settings)
             self._state = GameState.MENU
             return
+        rows = self._settings_rows()
         if event.key in (pygame.K_UP, pygame.K_w):
-            self._settings_index = (self._settings_index - 1) % 2
+            self._settings_index = (self._settings_index - 1) % len(rows)
         elif event.key in (pygame.K_DOWN, pygame.K_s):
-            self._settings_index = (self._settings_index + 1) % 2
+            self._settings_index = (self._settings_index + 1) % len(rows)
         elif event.key in (pygame.K_LEFT, pygame.K_a):
             self._adjust_setting(-1)
-        elif event.key in (pygame.K_RIGHT, pygame.K_d):
+        elif event.key in (
+            pygame.K_RIGHT,
+            pygame.K_d,
+            pygame.K_RETURN,
+            pygame.K_KP_ENTER,
+            pygame.K_SPACE,
+        ):
             self._adjust_setting(+1)
 
+    _SETTINGS_KEYS: tuple[str, ...] = (
+        "music",
+        "sfx",
+        "mute",
+        "difficulty",
+        "theme",
+        "fullscreen",
+        "ui_scale",
+        "reduce_motion",
+        "crt",
+        "large_text",
+    )
+
     def _adjust_setting(self, direction: int) -> None:
-        if self._settings_index == 0:
-            self._settings.adjust_volume(0.1 * direction)
+        key = self._SETTINGS_KEYS[self._settings_index % len(self._SETTINGS_KEYS)]
+        if key == "music":
+            self._settings.adjust_music_volume(0.1 * direction)
             if self._sfx is not None:
-                self._sfx.set_volume(self._settings.volume)
-        else:
-            # Cycle difficulty in either direction.
+                self._sfx.set_music_volume(self._settings.music_volume)
+        elif key == "sfx":
+            self._settings.adjust_sfx_volume(0.1 * direction)
+            if self._sfx is not None:
+                self._sfx.set_sfx_volume(self._settings.sfx_volume)
+        elif key == "mute":
+            self._settings.toggle_mute()
+            if self._sfx is not None:
+                self._sfx.set_muted(self._settings.muted)
+        elif key == "difficulty":
             self._settings.cycle_difficulty()
+        elif key == "theme":
+            self._cycle_theme(direction)
+        elif key == "fullscreen":
+            self._settings.toggle_fullscreen()
+            self._apply_display_mode()
+        elif key == "ui_scale":
+            self._settings.adjust_ui_scale(0.05 * direction)
+        elif key == "reduce_motion":
+            self._settings.toggle_reduce_motion()
+        elif key == "crt":
+            self._settings.toggle_crt()
+        elif key == "large_text":
+            self._settings.toggle_large_text()
+
+    def _cycle_theme(self, direction: int) -> None:
+        from kernelquest.ui import themes as themes_mod
+
+        keys = [t.key for t in themes_mod.CATALOG]
+        current = self._settings.theme
+        idx = keys.index(current) if current in keys else 0
+        idx = (idx + direction) % len(keys)
+        self._settings.theme = keys[idx]
+        themes_mod.apply_theme(self._settings.theme)
 
     def _handle_playing_key(self, event: pygame.event.Event) -> None:
         assert self._world is not None
@@ -291,6 +413,10 @@ class GameEngine:
             if player.crash_cause is None:
                 player.crash_cause = "Manual shutdown"
             self._enter_game_over()
+            return
+
+        if event.key in (pygame.K_QUESTION, pygame.K_SLASH, pygame.K_F1):
+            self._show_help_overlay = not self._show_help_overlay
             return
 
         if event.key == pygame.K_SPACE:
@@ -340,6 +466,17 @@ class GameEngine:
         elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
             picked = self._patch_choices[self._patch_pick_index]
             self._patches.add(picked)
+            # Apply one-shot effects on pickup.
+            single = PatchEffects()
+            picked.apply(single)
+            if self._world is not None:
+                player = self._world.player
+                if single.starting_ram_bonus > 0:
+                    player.max_ram += single.starting_ram_bonus
+                    player.ram = min(player.max_ram, player.ram + single.starting_ram_bonus)
+                if single.fov_radius_bonus > 0:
+                    player.bonus_scan_radius += single.fov_radius_bonus
+                    self._world.recompute_fov()
             self._console.info(f"Applied patch: {picked.label}")
             self._patch_choices = []
             self._state = GameState.PLAYING
@@ -370,13 +507,40 @@ class GameEngine:
                 shake=self._shake,
                 particles=self._particles,
             )
+            ui.render_floating_text(self._floats, self._viewport)
             ui.render_hud(
                 self._world.player,
                 sector=self._world.player.depth_reached,
                 world=self._world,
                 patches=[p.label for p in self._patches.selected],
             )
+            if self._boss_active:
+                boss = self._world.living_boss()
+                if boss is not None:
+                    ui.render_boss_hp_bar(boss)
+                if self._boss_banner_ttl > 0.0:
+                    ui.render_boss_banner(
+                        boss.crash_label if boss is not None else "BOSS",
+                        self._boss_banner_ttl / 2.5,
+                    )
+                ui.render_glitch_overlay(max(0.25, self._glitch_intensity))
+            elif self._glitch_intensity > 0.0:
+                ui.render_glitch_overlay(self._glitch_intensity)
             ui.render_console(self._console)
+            if self._show_help_overlay:
+                ui.render_help_overlay()
+            if self._settings.crt_effect:
+                ui.render_scanlines()
+        elif self._state is GameState.TUTORIAL:
+            ui.render_tutorial(
+                self._TUTORIAL_STEPS[min(self._tutorial_step, len(self._TUTORIAL_STEPS) - 1)],
+                self._tutorial_step + 1,
+                len(self._TUTORIAL_STEPS),
+            )
+            if self._settings.crt_effect:
+                ui.render_scanlines()
+        elif self._state is GameState.HOWTOPLAY:
+            ui.render_howtoplay(self._howtoplay_lines, self._howtoplay_scroll)
         elif self._state is GameState.GAME_OVER and self._world is not None:
             ui.render_game_over(self._world.player, self._name_buffer)
         elif self._state is GameState.HIGH_SCORES:
@@ -418,6 +582,11 @@ class GameEngine:
         self._patches = PatchState()
         self._patch_choices = []
         self._patch_pick_index = 0
+        self._is_tutorial_run = False
+        self._boss_active = False
+        self._boss_banner_ttl = 0.0
+        self._glitch_intensity = 0.0
+        self._floats.clear()
 
         bonus = self._compute_bonus()
         max_ram = PLAYER_START_RAM + bonus.bonus_ram
@@ -447,6 +616,9 @@ class GameEngine:
             f"{prefix}Process spawned in sector 0x{player.depth_reached:02X} (seed={seed})"
         )
         self._particles.clear()
+        if self._sfx is not None:
+            self._sfx.start_music("main")
+        self._refresh_boss_state()
         self._state = GameState.PLAYING
 
     def _equipped_daemons(self) -> list[Daemon]:
@@ -477,6 +649,7 @@ class GameEngine:
         if not player.spend_cycle():
             return
         patch_effects = self._patches.effects()
+        boss_mult = patch_effects.boss_damage_mult if getattr(enemy, "is_boss", False) else 1.0
         damage = max(
             1,
             int(
@@ -484,6 +657,7 @@ class GameEngine:
                     player.base_damage
                     * self._settings.player_damage_multiplier
                     * patch_effects.player_damage_mult
+                    * boss_mult
                     * player.next_attack_multiplier
                     * damage_multiplier_on_attack(player)
                 )
@@ -516,12 +690,23 @@ class GameEngine:
         base = enemy.score_value
         gained = int(round(base * player.combo_multiplier * patch_effects.score_mult))
         player.score = max(0, player.score - base + gained)  # base was already added by combat
+        # Floating "+score" pop above the kill.
+        if not self._settings.reduce_motion and gained > 0:
+            ex, ey = enemy.position
+            self._floats.spawn(f"+{gained}", (ex + 0.5, ey + 0.5), theme.NEON_AMBER)
         player.register_combo_event()
         # Bosses drop a guaranteed daemon (if not all already owned).
         if isinstance(enemy, ZombieProcess) and self._rng.random() < 0.25:
             self._maybe_award_daemon()
         if isinstance(enemy, SegFault):
             self._maybe_award_daemon(force=True)
+        # Boss defeated — release lock and restore main music.
+        if getattr(enemy, "is_boss", False) and not self._world.has_living_boss:
+            self._boss_active = False
+            self._glitch_intensity = 0.0
+            self._console.info("BOSS terminated. Exit unlocked.")
+            if self._sfx is not None:
+                self._sfx.start_music("main")
 
     def _maybe_award_daemon(self, *, force: bool = False) -> None:
         if self._daemons_repo is None:
@@ -545,12 +730,22 @@ class GameEngine:
 
         message = pickup_item_at(self._world, player.position)
         if message is not None:
+            patch_effects = self._patches.effects()
             self._console.info(message)
             self._play_sfx("pickup")
             bonus_score = daemon_on_pickup(self._world)
             if bonus_score > 0:
                 player.score += bonus_score
                 self._console.info(f"daemon bonus: +{bonus_score}")
+            # Apply pickup_score_mult on top (rough heuristic: bonus delta scaled).
+            if patch_effects.pickup_score_mult != 1.0 and bonus_score > 0:
+                extra = int(round(bonus_score * (patch_effects.pickup_score_mult - 1.0)))
+                if extra:
+                    player.score = max(0, player.score + extra)
+            # Cycle refund on pickup (Zero-Copy patch).
+            refund = patch_effects.cycle_refund_on_pickup
+            if refund > 0:
+                player.cpu_cycles = min(player.max_cpu_cycles, player.cpu_cycles + refund)
             player.register_combo_event()
             self._particles.burst(
                 (player.position[0] + 0.5, player.position[1] + 0.5),
@@ -565,9 +760,20 @@ class GameEngine:
             player.take_damage(BAD_SECTOR_DAMAGE, source="Bad Sector")
             self._console.warn(f"Bad Sector burned {BAD_SECTOR_DAMAGE} RAM")
             self._shake.punch(SCREEN_SHAKE_DAMAGE_INTENSITY)
+            if not self._settings.reduce_motion:
+                px, py = player.position
+                self._floats.spawn(
+                    f"-{BAD_SECTOR_DAMAGE} RAM", (px + 0.5, py + 0.5), (255, 110, 110)
+                )
         elif tile is TileType.EXIT:
-            self._descend()
-            return
+            if self._world.has_living_boss:
+                boss = self._world.living_boss()
+                label = boss.crash_label if boss is not None else "BOSS"
+                self._console.crit(f"EXIT LOCKED — terminate {label} first.")
+                self._glitch_intensity = max(self._glitch_intensity, 0.6)
+            else:
+                self._descend()
+                return
 
         if not player.is_alive:
             self._enter_game_over()
@@ -588,6 +794,10 @@ class GameEngine:
         assert self._world is not None
         starting_ram = self._world.player.ram
         patch_effects = self._patches.effects()
+        # Page-fault patch: ram_per_action drains RAM each turn.
+        if patch_effects.ram_per_action > 0 and self._world.player.is_alive:
+            self._world.player.take_damage(patch_effects.ram_per_action, source="page-fault")
+            self._console.warn(f"page-fault: -{patch_effects.ram_per_action} RAM")
         enemy_mult = self._settings.enemy_damage_multiplier * patch_effects.enemy_damage_mult
         for message in run_enemy_turn(self._world, self._rng, damage_multiplier=enemy_mult):
             self._console.warn(message)
@@ -618,17 +828,40 @@ class GameEngine:
         player.score += SCORE_PER_DESCENT
         self._console.info(f"Descending to sector 0x{player.depth_reached:02X}")
         self._play_sfx("descend")
+        patch_effects = self._patches.effects()
         self._world = generate_world(
             player=player,
             depth=player.depth_reached,
             rng=self._rng,
+            extra_enemies=patch_effects.extra_enemies_per_sector,
         )
         self._world.recompute_fov()
         self._particles.clear()
+        self._floats.clear()
         player.end_turn()
+        self._refresh_boss_state()
         # Offer 3 random patches every odd-depth descent (skip depth 1).
         if player.depth_reached >= 2:
             self._open_patch_picker()
+
+    def _refresh_boss_state(self) -> None:
+        if self._world is None:
+            self._boss_active = False
+            return
+        boss = self._world.living_boss()
+        was_active = self._boss_active
+        self._boss_active = boss is not None
+        if self._boss_active and not was_active:
+            self._boss_banner_ttl = 2.5
+            self._glitch_intensity = 1.0
+            self._play_sfx("boss_warn")
+            if self._sfx is not None:
+                self._sfx.start_music("boss")
+            label = boss.crash_label if boss is not None else "BOSS"
+            self._console.crit(f"!! BOSS PROCESS LOADED: {label} !!")
+        elif not self._boss_active and was_active:
+            if self._sfx is not None:
+                self._sfx.start_music("main")
 
     def _open_patch_picker(self) -> None:
         if len(PATCH_CATALOG) < 3:  # pragma: no cover
@@ -740,9 +973,18 @@ class GameEngine:
         self._shop_message = f"Purchased {upgrade.label} L{current + 1} for {cost} bits."
 
     def _settings_rows(self) -> list[tuple[str, str]]:
+        s = self._settings
         return [
-            ("Volume", f"{int(round(self._settings.volume * 100))}%"),
-            ("Difficulty", self._settings.difficulty.value),
+            ("Music Vol", f"{int(round(s.music_volume * 100))}%"),
+            ("SFX Vol", f"{int(round(s.sfx_volume * 100))}%"),
+            ("Mute", "ON" if s.muted else "OFF"),
+            ("Difficulty", s.difficulty.value),
+            ("Theme", s.theme),
+            ("Fullscreen", "ON" if s.fullscreen else "OFF"),
+            ("UI Scale", f"{s.ui_scale:.2f}x"),
+            ("Reduce Motion", "ON" if s.reduce_motion else "OFF"),
+            ("CRT Effect", "ON" if s.crt_effect else "OFF"),
+            ("Large Text", "ON" if s.large_text else "OFF"),
         ]
 
     def _fetch_high_scores(self) -> list[tuple[str, int, int, str, str]]:
@@ -780,6 +1022,79 @@ class GameEngine:
             (r.player_name, r.total_score, r.depth_reached, r.crash_cause, r.timestamp)
             for r in rows
         ]
+
+    # ----- tutorial / how-to-play -----
+
+    _TUTORIAL_STEPS: tuple[str, ...] = (
+        "Welcome to Kernel Quest. Use ARROW KEYS or WASD to move.",
+        "Walk into a Malware tile to ATTACK it. Each move costs 1 CPU cycle.",
+        "Pick up GC items to recover RAM. SCAN+ items reveal more of the map.",
+        "Press [Q/E/R] to fire programs from your loadout.",
+        "Reach the magenta EXIT to descend deeper. Some sectors lock the EXIT until the BOSS dies.",
+        "Press [SPACE] to wait, [ESC] anytime to leave the run, [F11] toggles fullscreen.",
+        "That's it! Press ENTER to finish the tutorial.",
+    )
+
+    def _start_tutorial(self) -> None:
+        self._is_tutorial_run = True
+        self._tutorial_step = 0
+        self._console.clear()
+        self._console.info("TUTORIAL — read the on-screen prompts and press ENTER to advance.")
+        self._state = GameState.TUTORIAL
+        if self._sfx is not None:
+            self._sfx.start_music("tutorial")
+
+    def _handle_tutorial_key(self, event: pygame.event.Event) -> None:
+        if event.key in (pygame.K_ESCAPE,):
+            self._end_tutorial()
+            return
+        if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
+            self._tutorial_step += 1
+            if self._tutorial_step >= len(self._TUTORIAL_STEPS):
+                self._end_tutorial()
+
+    def _end_tutorial(self) -> None:
+        if self._meta is not None:
+            settings_module.mark_tutorial_done(self._meta)
+        self._is_tutorial_run = False
+        if self._sfx is not None:
+            self._sfx.start_music("main")
+        self._state = GameState.MENU
+
+    def _open_howtoplay(self) -> None:
+        if not self._howtoplay_lines:
+            self._howtoplay_lines = self._load_howtoplay_lines()
+        self._howtoplay_scroll = 0
+        self._state = GameState.HOWTOPLAY
+
+    def _load_howtoplay_lines(self) -> list[str]:
+        path = Path("HOWTOPLAY.md")
+        if not path.exists():
+            return [
+                "HOWTOPLAY.md not found.",
+                "See the in-game tutorial for instructions.",
+            ]
+        try:
+            return path.read_text(encoding="utf-8").splitlines()
+        except OSError:  # pragma: no cover
+            return ["Failed to read HOWTOPLAY.md."]
+
+    def _handle_howtoplay_key(self, event: pygame.event.Event) -> None:
+        if event.key in (pygame.K_ESCAPE, pygame.K_RETURN, pygame.K_KP_ENTER):
+            self._state = GameState.MENU
+            return
+        if event.key in (pygame.K_UP, pygame.K_w):
+            self._howtoplay_scroll = max(0, self._howtoplay_scroll - 1)
+        elif event.key in (pygame.K_DOWN, pygame.K_s):
+            self._howtoplay_scroll = min(
+                max(0, len(self._howtoplay_lines) - 8), self._howtoplay_scroll + 1
+            )
+        elif event.key == pygame.K_PAGEUP:
+            self._howtoplay_scroll = max(0, self._howtoplay_scroll - 10)
+        elif event.key == pygame.K_PAGEDOWN:
+            self._howtoplay_scroll = min(
+                max(0, len(self._howtoplay_lines) - 8), self._howtoplay_scroll + 10
+            )
 
 
 def _key_to_delta(key: int) -> tuple[int, int] | None:

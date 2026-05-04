@@ -206,53 +206,53 @@ This roadmap breaks the project into four phases, each with concrete, testable d
 **Goal:** Make Kernel Quest legible, juicy, and welcoming on first launch. Lean into the Balatro/CRT visual language: chunky readable type, subtle bloom, scanlines, satisfying micro-animations.
 
 ### 6.1 Tutorial / "First Boot"
-- [ ] Detect first-run (no rows in `scores`) and route into a guided **Boot Sequence** tutorial sector instead of the menu.
-- [ ] Step-by-step prompts: "Press **WASD** to move", "Bump the `SyntaxError` to attack", "Press **1** to use a `GarbageCollector`", "Press **Q** to fire `kill -9`".
-- [ ] **Help** menu entry that re-opens the tutorial at any time.
-- [ ] In-game `?` overlay: contextual cheat-sheet of current controls.
+- [x] Detect first-run (no rows in `scores`) and route into a guided **Boot Sequence** tutorial sector instead of the menu.
+- [x] Step-by-step prompts: "Press **WASD** to move", "Bump the `SyntaxError` to attack", "Press **1** to use a `GarbageCollector`", "Press **Q** to fire `kill -9`".
+- [x] **Help** menu entry that re-opens the tutorial at any time.
+- [x] In-game `?` overlay: contextual cheat-sheet of current controls.
 
 ### 6.2 Visual identity refresh (Balatro-inspired)
-- [ ] CRT post-process shader (scanlines, slight curvature, chromatic aberration) — toggle in Settings.
+- [x] CRT post-process shader (scanlines, slight curvature, chromatic aberration) — toggle in Settings.
 - [ ] Chunkier "card" components for menus (drop shadow, 4 px border, hover lift animation).
 - [ ] Animated tile transitions: items wobble, enemies breathe, player has idle animation.
-- [ ] Number-pop particles on damage / score gain (Balatro-style floating digits).
+- [x] Number-pop particles on damage / score gain (Balatro-style floating digits).
 - [ ] Smooth interpolated camera (lerp to player position, screen-shake on crit).
 
 ### 6.3 HUD pass
 - [ ] Side panel becomes a real "Run Info" card: seed, sector, depth, multiplier, equipped daemons.
 - [ ] Tooltips on every HUD element (hover any item / daemon → show full description).
-- [ ] Big readable score readout with comma separators and tween animation.
-- [ ] Persistent mini help-bar at the bottom showing the 4–5 most relevant keybinds for the current state.
+- [x] Big readable score readout with comma separators and tween animation.
+- [x] Persistent mini help-bar at the bottom showing the 4–5 most relevant keybinds for the current state.
 
 ### 6.4 Themes
-- [ ] Theme registry with 4 starter palettes:
+- [x] Theme registry with 4 starter palettes:
   - **Kernel** (default neon cyan/magenta).
   - **Phosphor Green** (classic terminal).
   - **Amber CRT** (vintage monochrome).
   - **High Contrast** (accessibility).
-- [ ] Settings → Theme picker with live preview.
-- [ ] Persist theme choice in `meta` table.
+- [x] Settings → Theme picker with live preview.
+- [x] Persist theme choice in `meta` table.
 
 ### 6.5 Display & input options
-- [ ] **Fullscreen toggle** (Settings + global **F11** shortcut).
+- [x] **Fullscreen toggle** (Settings + global **F11** shortcut).
 - [ ] Resolution picker: 1280×720 / 1920×1080 / Native.
-- [ ] UI scale slider (0.75× – 1.5×) for hi-DPI users.
+- [x] UI scale slider (0.75× – 1.5×) for hi-DPI users.
 - [ ] Full key remapping screen (write to `meta.keymap` JSON).
 - [ ] Gamepad support (basic d-pad + 4 face buttons via `pygame.joystick`).
 
 ### 6.6 Audio polish
-- [ ] Separate **Music** and **SFX** volume sliders.
-- [ ] Mute toggle (**M** key, persisted).
-- [ ] Add 2–3 alternate chiptune tracks; pick at random per run.
+- [x] Separate **Music** and **SFX** volume sliders.
+- [x] Mute toggle (**M** key, persisted).
+- [x] Add 2–3 alternate chiptune tracks; pick at random per run.
 
 ### 6.7 Accessibility (promoted from stretch goals)
-- [ ] Colorblind palette (Deuteranopia / Protanopia / Tritanopia presets).
-- [ ] "Reduce motion" option (disables shake + particle pops).
-- [ ] Screen-reader-friendly text fallbacks for HUD numbers (logged via `ConsoleLog`).
-- [ ] Larger-text mode that bumps every font size +25%.
+- [x] Colorblind palette (Deuteranopia / Protanopia / Tritanopia presets).
+- [x] "Reduce motion" option (disables shake + particle pops).
+- [x] Screen-reader-friendly text fallbacks for HUD numbers (logged via `ConsoleLog`).
+- [x] Larger-text mode that bumps every font size +25%.
 
 ### 6.8 Documentation
-- [ ] In-repo `HOWTOPLAY.md` linked from main menu (`Help` opens it ingame as scrollable text).
+- [x] In-repo `HOWTOPLAY.md` linked from main menu (`Help` opens it ingame as scrollable text).
 - [ ] Animated GIFs in `README.md` showing each major mechanic.
 
 **Exit criteria:** A complete newcomer can launch the game, finish the tutorial, switch to their preferred theme, go fullscreen, and complete a run without ever reading external docs.

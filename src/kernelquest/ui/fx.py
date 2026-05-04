@@ -100,3 +100,51 @@ class ParticleSystem:
 
     def clear(self) -> None:
         self.particles.clear()
+
+
+@dataclass
+class FloatingText:
+    """A short text pop ("+15", "-2 RAM") that floats up and fades."""
+
+    text: str
+    x: float
+    y: float
+    color: tuple[int, int, int]
+    vy: float = -1.2
+    life: int = 45
+    max_life: int = 45
+
+    @property
+    def alive(self) -> bool:
+        return self.life > 0
+
+    @property
+    def alpha(self) -> int:
+        return max(0, int(255 * (self.life / max(1, self.max_life))))
+
+
+@dataclass
+class FloatingTextSystem:
+    """Spawns and steps `+score` / `-RAM` style popups."""
+
+    items: list[FloatingText] = field(default_factory=list)
+
+    def step(self) -> None:
+        for t in self.items:
+            t.y += t.vy
+            t.vy *= 0.94
+            t.life -= 1
+        self.items = [t for t in self.items if t.alive]
+
+    def spawn(
+        self,
+        text: str,
+        position: tuple[float, float],
+        color: tuple[int, int, int],
+        life: int = 45,
+    ) -> None:
+        x, y = position
+        self.items.append(FloatingText(text=text, x=x, y=y, color=color, life=life, max_life=life))
+
+    def clear(self) -> None:
+        self.items.clear()
