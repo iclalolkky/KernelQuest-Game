@@ -6,7 +6,69 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
-## [Unreleased]
+## [2.0.0] — 2026-05-05
+
+> **The "Juice + Onboarding" release.** Phases 5 and 6 land together: stacking modifiers (Programs, Daemons, Patch Notes), combo scoring, a second boss, daily seeds, a guided tutorial, themes, and a full accessibility/display options pass.
+
+### Added — Phase 5: Mechanics Expansion ("The Juice Update")
+
+- **Programs (active abilities).** New `Program` entity — card-like usables with cooldown and charges, hot-keyed to **Q / E / R**. Catalog includes `fork()`, `kill -9`, `sudo`, `grep`, `nice`, `nohup`, `chmod +x`. Backed by `programs` table + `ProgramRepository`.
+- **Daemons (passive modifiers).** New `Daemon` entity — up to 5 equipped slots, drag-and-drop reorder. Synergy tags (`arithmetic`, `io`, `network`, `memory`, `signal`) trigger combo bonuses when stacked. Examples: `cron`, `swapd`, `oom-killer`, `tcpdump`, `niced`.
+- **Combo / chain scoring.** Score formula is now `base × multiplier`. Multiplier grows on consecutive kill → pickup → kill turns; breaks on damage taken or 3+ idle turns. Balatro-style multiplier widget pops/scales on increase.
+- **Patch Notes (run modifiers).** Between sectors, the player picks one of three random **Patch** cards. Catalog grew from a handful to **20 cards** spanning 13 effect dimensions (`player_damage_mult`, `enemy_damage_mult`, `enemy_hp_mult`, `enemy_speed_bonus`, `score_mult`, `fov_radius_bonus`, `extra_enemies_per_sector`, `pickup_score_mult`, `ram_per_action`, `starting_ram_bonus`, `cycle_refund_on_pickup`, `combo_decay_bonus`, `boss_damage_mult`). New cards: `kernel-bypass`, `dark-mode`, `fragmented`, `noatime`, `thermal-throttle`, `lazy-eval`, `page-fault`, `swap-thrash`, `stack-trace`, `root-kit`, `heap-spray`, `zero-copy`, `opportunistic`, `ddos`. Backed by `patches` table; selected patches render as HUD chips.
+- **New boss & elite.** `ZombieProcess` elite mob (revives once on death). Second boss `SegFault` — teleports and splits the grid into halves. Both bosses now drop a guaranteed Daemon.
+- **Boss redesign — radical.** Bosses are flagged `is_boss=True`; the **EXIT tile is locked** while a boss is alive (descending logs `[CRIT] EXIT LOCKED — terminate <boss> first.`). Each boss spawn:
+  - swaps the BGM to a dedicated boss track,
+  - flashes a red, full-width **BOSS HP bar** at the top of the screen,
+  - shows a flashing **"!! BOSS LOADED !!"** banner with `EXIT LOCKED` subtitle,
+  - triggers a **glitch overlay** (random horizontal slice offsets + faint red tint) that decays over time,
+  - plays a `boss_warn` sweep SFX (110→880 Hz over 600 ms).
+- **Daily seed challenge.** Date-based seed (`YYYY-MM-DD` → RNG); same dungeon for everyone that day. New `Daily Run` menu entry and **Daily Board** local leaderboard.
+- **Carry-over data fix.** One-time migration that backfills `runs` from any pre-Phase-4 `scores` rows so the Stats screen matches High Scores. `RunRepository.best()` falls back to `ScoreRepository.top_n(1)` when `runs` is empty.
+
+### Added — Phase 6: Onboarding, UI Polish & Accessibility
+
+- **First-Boot tutorial.** New `GameState.TUTORIAL` with a 7-step guided walk-through (movement, bump-attack, cache, programs, daemons, patches, exit). On first launch (no rows in `scores`), the engine logs a hint pointing at the Tutorial menu entry. Completion is persisted via `meta.tutorial_done`. Re-entry is always available from the menu.
+- **In-game `?` / `F1` help overlay.** Contextual cheat-sheet of current controls.
+- **Persistent mini help-bar.** Bottom of every screen lists the 4–5 most relevant keybinds for the current state.
+- **`HOWTOPLAY.md` viewer.** New `GameState.HOWTOPLAY` reads `HOWTOPLAY.md` from the repo and renders it as scrollable text (↑/↓, PgUp/PgDn).
+- **Theme registry.** New `ui/themes.py` with 4 starter palettes — **Kernel** (default neon cyan/magenta), **Phosphor Green**, **Amber CRT**, **High Contrast**. `apply_theme()` mutates the runtime `ui.theme` module so every renderer call picks up the new palette live. Choice persists in `meta`. `ui/theme.py` constants had `Final[]` annotations stripped to allow live theme swaps.
+- **Display options.** **F11** fullscreen toggle (also in Settings). UI scale slider 0.75× – 1.5× for hi-DPI users.
+- **Audio polish.** Settings split **Music** and **SFX** volume sliders; **M** key (or Settings row) toggles persistent mute. Three alternate chiptune tracks (`main`, `variant_a`, `boss`, `tutorial`) selectable by context. New SFX `boss_warn` and `glitch`.
+- **Accessibility.**
+  - **Reduce motion** option — disables screen shake and clears particle pops; gates floating-text spawns.
+  - **Large text** mode — multiplies every font size by 1.25 at boot.
+  - **High Contrast** theme preset for colorblind / low-vision users.
+  - Screen-reader-friendly fallbacks: every HUD-relevant change is mirrored to the in-game `ConsoleLog`.
+- **Visual polish.**
+  - **CRT scanline** post-process overlay (every-3-pixel dim line), toggleable in Settings.
+  - **Floating numbers.** New `FloatingTextSystem` (`ui/fx.py`) renders `+score` / `-RAM` pops with upward velocity and alpha fade.
+  - **Score readout** uses comma separators (`f"{player.score:,}"`).
+
+### Changed
+
+- **`Settings` model** vastly expanded: `music_volume`, `sfx_volume`, `muted`, `theme`, `fullscreen`, `ui_scale`, `reduce_motion`, `crt_effect`, `large_text` (alongside existing `volume`, `difficulty`). All round-trip through `MetaRepository`.
+- **`GameEngine`** rewritten with new state machine entries (`TUTORIAL`, `HOWTOPLAY`), boss-state tracking (`_boss_active`, `_boss_banner_ttl`, `_glitch_intensity`), floating-text system, theme bootstrap, and 10-row Settings screen with `_handle_settings_key` cycling and `_adjust_setting` dispatch.
+- **`world/generator.py`** now accepts `extra_enemies` (threaded from `extra_enemies_per_sector` patch effect) on top of the depth-scaled base count.
+- **`UIManager`** picks tile/item/level colors via runtime attribute lookups instead of frozen dicts so theme switches take effect immediately. New methods: `render_floating_text`, `render_boss_hp_bar`, `render_boss_banner`, `render_glitch_overlay`, `render_scanlines`, `render_help_overlay`, `render_tutorial`, `render_howtoplay`.
+- **Main menu** options: **New Run, Daily Run, Tutorial, How to Play, High Scores, Daily Board, Stats, Shop, Settings, Quit**.
+- **Patch pickup** now applies one-shot effects on selection: `starting_ram_bonus` raises `player.max_ram + ram` and `fov_radius_bonus` extends `bonus_scan_radius` (FOV recomputed).
+
+### Fixed
+
+- Stats screen no longer shows zero best-run when `runs` table is empty but `scores` has rows (RunRepository fallback).
+- Theme constants are now actually mutable at runtime (the `Final[]` annotations were preventing live theme swaps).
+
+### Tests & quality gate
+
+- 142 tests total (was 127). 15 new Phase-6 tests covering theme registry mutation, settings round-trip, patch catalog uniqueness/effects, boss flag wiring, `World.living_boss()`, and `extra_enemies` plumbing.
+- `ruff`, `black`, `mypy --strict`, and `pytest` all green at release.
+
+---
+
+## [1.0.0] — 2025-12
+
+First release tag. Includes Phases 0 – 4 in full (see Phase entries below).
 
 ### Added
 - **Phase 4 — Persistence, Meta-progression & Final Integration (complete).**
@@ -21,7 +83,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
   - 21 new unit tests: run/meta/upgrade repositories, settings (round-trip + clamping + garbage handling), upgrades catalog, and AI difficulty wiring.
   - `kernelquest.spec`: PyInstaller spec for one-file builds on macOS/Windows/Linux.
 
-### Added (previous)
 - **Phase 0 — Bootstrapping (complete).** `pyproject.toml`, package layout, lint/format/type/test tooling, GitHub Actions CI, MIT license, issue & PR templates, `.editorconfig`, `.gitignore`.
 - **Phase 1 — Core Loop (complete).**
   - `core/engine.py`: `GameEngine` with FPS cap, delta-time, state machine (`MENU`/`PLAYING`/`GAME_OVER`/`QUIT`), clean shutdown.
@@ -50,17 +111,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 - Product spec: `docs/PRD_AND_ARCH.md`.
 
 ### Changed
-- _Nothing yet._
+- _Nothing in this release._
 
 ### Fixed
-- _Nothing yet._
-
----
-
-## [0.1.0] — TBD
-
-First playable prototype (Phase 1 exit criteria).
-
-- Static grid with player movement.
-- SQLite scoreboard scaffolding.
-- Pygame window and turn-based loop.
+- _Nothing in this release._
