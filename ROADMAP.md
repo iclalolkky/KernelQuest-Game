@@ -83,35 +83,35 @@ This roadmap breaks the project into four phases, each with concrete, testable d
 
 ---
 
-## Phase 3 — UI & Polish
+## Phase 3 — UI & Polish ✅
 
 **Goal:** A game that *feels* like Tron-meets-htop.
 
 ### 3.1 Theme & layout
-- [ ] Color palette (deep navy/black + neon cyan/green/magenta).
-- [ ] Glassmorphism-style side panel.
-- [ ] Custom monospace font (e.g. JetBrains Mono / Fira Code).
+- [x] Color palette (deep navy/black + neon cyan/green/magenta).
+- [x] Glassmorphism-style side panel.
+- [x] Custom monospace font (e.g. JetBrains Mono / Fira Code).
 
 ### 3.2 HUD
-- [ ] RAM bar (animated, color shifts when low).
-- [ ] CPU meter rendered as a live sine-wave (`math.sin`) on a small canvas.
-- [ ] Depth/sector indicator.
-- [ ] Mini-map (optional).
+- [x] RAM bar (animated, color shifts when low).
+- [x] CPU meter rendered as a live sine-wave (`math.sin`) on a small canvas.
+- [x] Depth/sector indicator.
+- [x] Mini-map (optional).
 
 ### 3.3 Console log
-- [ ] Bottom-screen log feed: `[INFO] User moved to Sector 0x04. Trace detected!`
-- [ ] Severity levels: `INFO`, `WARN`, `ERROR`, `CRIT`, color-coded.
-- [ ] Ring-buffer of last N messages.
+- [x] Bottom-screen log feed: `[INFO] User moved to Sector 0x04. Trace detected!`
+- [x] Severity levels: `INFO`, `WARN`, `ERROR`, `CRIT`, color-coded.
+- [x] Ring-buffer of last N messages.
 
 ### 3.4 Fog of War
-- [ ] Visibility radius around player.
-- [ ] Explored-but-not-visible tiles dimmed.
-- [ ] `ScanBoost` item temporarily extends radius.
+- [x] Visibility radius around player.
+- [x] Explored-but-not-visible tiles dimmed.
+- [x] `ScanBoost` item temporarily extends radius.
 
 ### 3.5 Juice
-- [ ] Screen shake on damage / crash.
-- [ ] Particle effects for hits, explosions, item pickups.
-- [ ] SFX (movement blip, attack, explosion, crash jingle).
+- [x] Screen shake on damage / crash.
+- [x] Particle effects for hits, explosions, item pickups.
+- [x] SFX (movement blip, attack, explosion, crash jingle).
 - [ ] Optional chiptune background loop.
 
 **Exit criteria:** Looks and feels distinctive; new players can grasp the HUD without explanation.

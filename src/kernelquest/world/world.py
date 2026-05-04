@@ -5,7 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from kernelquest.core.config import (
+    DEFAULT_SCAN_RADIUS,
+    SCAN_BOOST_RADIUS_BONUS,
+)
 from kernelquest.entities.malware import Malware
+from kernelquest.systems.fov import compute_visible
 from kernelquest.world.grid import MemoryGrid
 
 if TYPE_CHECKING:
@@ -25,6 +30,8 @@ class World:
     enemies: list[Malware] = field(default_factory=list)
     items: dict[tuple[int, int], str] = field(default_factory=dict)
     depth: int = 1
+    visible: set[tuple[int, int]] = field(default_factory=set)
+    explored: set[tuple[int, int]] = field(default_factory=set)
 
     # ----- queries -----
 
@@ -53,3 +60,11 @@ class World:
         dead = [e for e in self.enemies if not e.is_alive]
         self.enemies = [e for e in self.enemies if e.is_alive]
         return dead
+
+    def recompute_fov(self) -> None:
+        """Recalculate the visible set from the player's current position."""
+        radius = DEFAULT_SCAN_RADIUS
+        if self.player.has_scan_boost:
+            radius += SCAN_BOOST_RADIUS_BONUS
+        self.visible = compute_visible(self.grid, self.player.position, radius)
+        self.explored |= self.visible

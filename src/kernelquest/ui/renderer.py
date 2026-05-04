@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import math
+import random
+
 import pygame
 
 from kernelquest.core.config import (
+    HUD_CPU_WAVE_HEIGHT,
+    HUD_CPU_WAVE_WIDTH,
+    HUD_MINIMAP_TILE,
     TILE_SIZE,
     WINDOW_HEIGHT,
     WINDOW_WIDTH,
@@ -13,8 +19,9 @@ from kernelquest.entities.items import get_item
 from kernelquest.entities.malware import KernelPanic, LogicBomb, Malware, SyntaxError_
 from kernelquest.entities.player import Player
 from kernelquest.ui import theme
+from kernelquest.ui.console_log import ConsoleLog, LogLevel
+from kernelquest.ui.fx import ParticleSystem, ScreenShake
 from kernelquest.ui.viewport import Viewport
-from kernelquest.world.grid import MemoryGrid
 from kernelquest.world.tile import TileType
 from kernelquest.world.world import World
 
@@ -31,6 +38,23 @@ _ITEM_COLORS: dict[str, tuple[int, int, int]] = {
     "scan": theme.ITEM_SCAN_BOOST,
 }
 
+_LEVEL_COLORS: dict[LogLevel, tuple[int, int, int]] = {
+    LogLevel.INFO: theme.NEON_CYAN,
+    LogLevel.WARN: theme.NEON_AMBER,
+    LogLevel.ERROR: (255, 110, 110),
+    LogLevel.CRIT: theme.NEON_MAGENTA,
+}
+
+_CONSOLE_HEIGHT = 120
+
+
+def _dim(color: tuple[int, int, int], factor: float) -> tuple[int, int, int]:
+    return (
+        max(0, min(255, int(color[0] * factor))),
+        max(0, min(255, int(color[1] * factor))),
+        max(0, min(255, int(color[2] * factor))),
+    )
+
 
 class UIManager:
     """Owns all `pygame.draw` calls."""
@@ -40,6 +64,8 @@ class UIManager:
         self.font_small = pygame.font.SysFont("monospace", theme.FONT_SIZE_SMALL)
         self.font_body = pygame.font.SysFont("monospace", theme.FONT_SIZE_BODY)
         self.font_title = pygame.font.SysFont("monospace", theme.FONT_SIZE_TITLE, bold=True)
+        self._wave_phase: float = 0.0
+        self._fx_rng = random.Random(0xC0FFEE)
 
     # ----- frame plumbing -----
 
@@ -51,23 +77,46 @@ class UIManager:
 
     # ----- world rendering -----
 
-    def render_world(self, world: World, viewport: Viewport) -> None:
-        self.render_grid(world.grid, viewport)
-        self.render_items(world, viewport)
-        self.render_enemies(world, viewport)
-        self.render_player(world.player, viewport)
+    def render_world(
+        self,
+        world: World,
+        viewport: Viewport,
+        *,
+        shake: ScreenShake | None = None,
+        particles: ParticleSystem | None = None,
+    ) -> None:
+        offset = shake.offset(self._fx_rng) if shake is not None else (0, 0)
+        shifted = Viewport(
+            origin_x=viewport.origin_x + offset[0],
+            origin_y=viewport.origin_y + offset[1],
+            tile_size=viewport.tile_size,
+        )
+        self.render_grid(world, shifted)
+        self.render_items(world, shifted)
+        self.render_enemies(world, shifted)
+        self.render_player(world.player, shifted)
+        if particles is not None:
+            self.render_particles(particles, shifted)
 
-    def render_grid(self, grid: MemoryGrid, viewport: Viewport) -> None:
+    def render_grid(self, world: World, viewport: Viewport) -> None:
+        grid = world.grid
         for y in range(grid.height):
             for x in range(grid.width):
+                pos = (x, y)
+                if pos not in world.explored and world.explored:
+                    continue
                 tile = grid.get(x, y)
+                base = _TILE_COLORS[tile]
+                color = base if pos in world.visible or not world.visible else _dim(base, 0.45)
                 sx, sy = viewport.to_screen(x, y)
                 rect = pygame.Rect(sx, sy, viewport.tile_size, viewport.tile_size)
-                pygame.draw.rect(self.screen, _TILE_COLORS[tile], rect)
+                pygame.draw.rect(self.screen, color, rect)
                 pygame.draw.rect(self.screen, theme.GRID_LINE, rect, 1)
 
     def render_items(self, world: World, viewport: Viewport) -> None:
         for (x, y), item_id in world.items.items():
+            if world.visible and (x, y) not in world.visible:
+                continue
             sx, sy = viewport.to_screen(x, y)
             cx = sx + viewport.tile_size // 2
             cy = sy + viewport.tile_size // 2
@@ -80,6 +129,8 @@ class UIManager:
     def render_enemies(self, world: World, viewport: Viewport) -> None:
         for enemy in world.enemies:
             if not enemy.is_alive:
+                continue
+            if world.visible and enemy.position not in world.visible:
                 continue
             self._render_enemy(enemy, viewport)
 
@@ -97,7 +148,6 @@ class UIManager:
         pygame.draw.rect(self.screen, color, rect, border_radius=4)
         pygame.draw.rect(self.screen, theme.BACKGROUND, rect, width=1, border_radius=4)
 
-        # HP pip strip above the sprite.
         pip_count = max(1, min(8, enemy.max_hp // 4))
         pip_w = (viewport.tile_size - 8) // pip_count
         filled = int(round(pip_count * (enemy.hp / max(1, enemy.max_hp))))
@@ -115,41 +165,50 @@ class UIManager:
         if player.has_scan_boost:
             pygame.draw.circle(self.screen, theme.ITEM_SCAN_BOOST, center, radius + 4, 1)
 
+    def render_particles(self, particles: ParticleSystem, viewport: Viewport) -> None:
+        for p in particles.particles:
+            sx = viewport.origin_x + int(p.x * viewport.tile_size)
+            sy = viewport.origin_y + int(p.y * viewport.tile_size)
+            size = max(1, int(3 * p.life / max(1, p.max_life)))
+            surface = pygame.Surface((size * 2, size * 2), pygame.SRCALPHA)
+            pygame.draw.circle(surface, (*p.color, p.alpha), (size, size), size)
+            self.screen.blit(surface, (sx - size, sy - size))
+
     # ----- HUD -----
 
-    def render_hud(self, player: Player, sector: int) -> None:
+    def render_hud(self, player: Player, sector: int, world: World) -> None:
         panel_x = WINDOW_WIDTH - 280
-        panel_rect = pygame.Rect(panel_x, 16, 264, WINDOW_HEIGHT - 32)
-        pygame.draw.rect(self.screen, theme.PANEL_BG, panel_rect, border_radius=8)
+        panel_rect = pygame.Rect(panel_x, 16, 264, WINDOW_HEIGHT - 32 - _CONSOLE_HEIGHT)
+        # Glassmorphism: translucent panel.
+        glass = pygame.Surface(panel_rect.size, pygame.SRCALPHA)
+        glass.fill((*theme.PANEL_BG, 215))
+        self.screen.blit(glass, panel_rect.topleft)
         pygame.draw.rect(self.screen, theme.NEON_CYAN, panel_rect, width=1, border_radius=8)
 
         x = panel_x + 16
         y = 32
         self._blit_text("KERNEL QUEST", (x, y), theme.NEON_CYAN, self.font_body)
-        y += 32
+        y += 28
         self._blit_text(f"Sector  : 0x{sector:02X}", (x, y), theme.TEXT_PRIMARY, self.font_body)
-        y += 24
+        y += 22
         self._blit_text(f"Process : {player.name}", (x, y), theme.TEXT_PRIMARY, self.font_body)
-        y += 32
+        y += 28
 
-        # RAM bar
+        # RAM bar (color shifts when low).
+        ram_ratio = player.ram / max(1, player.max_ram)
+        ram_color = theme.NEON_GREEN
+        if ram_ratio < 0.25:
+            ram_color = (255, 110, 110)
+        elif ram_ratio < 0.5:
+            ram_color = theme.NEON_AMBER
         self._blit_text(
-            f"RAM     : {player.ram}/{player.max_ram}",
-            (x, y),
-            theme.NEON_GREEN,
-            self.font_body,
+            f"RAM     : {player.ram}/{player.max_ram}", (x, y), ram_color, self.font_body
         )
         y += 22
-        self._render_bar(
-            (x, y),
-            width=232,
-            height=10,
-            ratio=player.ram / max(1, player.max_ram),
-            color=theme.NEON_GREEN,
-        )
-        y += 24
+        self._render_bar((x, y), 232, 10, ram_ratio, ram_color)
+        y += 22
 
-        # CPU cycles
+        # CPU sine-wave canvas.
         self._blit_text(
             f"CYCLES  : {player.cpu_cycles}/{player.max_cpu_cycles}",
             (x, y),
@@ -157,19 +216,12 @@ class UIManager:
             self.font_body,
         )
         y += 22
-        self._render_bar(
-            (x, y),
-            width=232,
-            height=10,
-            ratio=player.cpu_cycles / max(1, player.max_cpu_cycles),
-            color=theme.NEON_AMBER,
-        )
-        y += 28
+        self._render_cpu_wave((x, y), player)
+        y += HUD_CPU_WAVE_HEIGHT + 6
 
         self._blit_text(f"SCORE   : {player.score}", (x, y), theme.TEXT_PRIMARY, self.font_body)
-        y += 28
+        y += 24
 
-        # Cache slots.
         self._blit_text(
             f"CACHE   : {len(player.cache)}/{player.cache_capacity}",
             (x, y),
@@ -186,7 +238,7 @@ class UIManager:
             self.screen.blit(label, label.get_rect(center=slot_rect.center))
             slot_index = self.font_small.render(f"{i + 1}", True, theme.TEXT_DIM)
             self.screen.blit(slot_index, (slot_rect.x, slot_rect.bottom + 2))
-        y += 60
+        y += 56
 
         if player.has_scan_boost:
             self._blit_text(
@@ -197,16 +249,42 @@ class UIManager:
             )
             y += 22
 
-        # Controls hint at bottom of panel.
-        hint_y = panel_rect.bottom - 132
+        # Mini-map.
+        self._render_minimap(world, (x, y))
+        y += world.grid.height * HUD_MINIMAP_TILE + 12
+
         hints = [
             "[↑/↓/←/→] move / attack",
             "[space]    wait",
             "[1..9]     use cache slot",
             "[esc]      quit run",
         ]
+        hint_y = panel_rect.bottom - 18 * len(hints) - 12
         for offset, text in enumerate(hints):
             self._blit_text(text, (x, hint_y + offset * 18), theme.TEXT_DIM, self.font_small)
+
+    def render_console(self, log: ConsoleLog) -> None:
+        rect = pygame.Rect(
+            16, WINDOW_HEIGHT - _CONSOLE_HEIGHT - 8, WINDOW_WIDTH - 312, _CONSOLE_HEIGHT
+        )
+        glass = pygame.Surface(rect.size, pygame.SRCALPHA)
+        glass.fill((*theme.PANEL_BG, 200))
+        self.screen.blit(glass, rect.topleft)
+        pygame.draw.rect(self.screen, theme.GRID_LINE, rect, width=1, border_radius=6)
+
+        pad_x = rect.x + 12
+        line_h = self.font_small.get_height() + 2
+        entries = log.entries()
+        max_lines = max(1, (rect.height - 12) // line_h)
+        visible = entries[-max_lines:]
+        y = rect.y + 8
+        for entry in visible:
+            color = _LEVEL_COLORS.get(entry.level, theme.TEXT_PRIMARY)
+            tag = self.font_small.render(f"[{entry.level.value}]", True, color)
+            self.screen.blit(tag, (pad_x, y))
+            msg = self.font_small.render(entry.message, True, theme.TEXT_PRIMARY)
+            self.screen.blit(msg, (pad_x + 64, y))
+            y += line_h
 
     # ----- screens -----
 
@@ -278,6 +356,50 @@ class UIManager:
         pygame.draw.rect(self.screen, theme.PANEL_BG, bg, border_radius=3)
         pygame.draw.rect(self.screen, color, fg, border_radius=3)
         pygame.draw.rect(self.screen, theme.GRID_LINE, bg, width=1, border_radius=3)
+
+    def _render_cpu_wave(self, pos: tuple[int, int], player: Player) -> None:
+        """Live sine wave whose amplitude tracks current CPU cycles."""
+        self._wave_phase += 0.18
+        rect = pygame.Rect(pos[0], pos[1], HUD_CPU_WAVE_WIDTH, HUD_CPU_WAVE_HEIGHT)
+        pygame.draw.rect(self.screen, theme.PANEL_BG, rect, border_radius=3)
+        pygame.draw.rect(self.screen, theme.GRID_LINE, rect, width=1, border_radius=3)
+
+        ratio = player.cpu_cycles / max(1, player.max_cpu_cycles)
+        amp = (HUD_CPU_WAVE_HEIGHT / 2 - 2) * (0.2 + 0.8 * ratio)
+        mid = rect.y + HUD_CPU_WAVE_HEIGHT // 2
+        prev: tuple[int, int] | None = None
+        for px in range(rect.width):
+            theta = self._wave_phase + px * 0.22
+            py = mid + int(amp * math.sin(theta))
+            point = (rect.x + px, py)
+            if prev is not None:
+                pygame.draw.line(self.screen, theme.NEON_AMBER, prev, point, 1)
+            prev = point
+
+    def _render_minimap(self, world: World, pos: tuple[int, int]) -> None:
+        ts = HUD_MINIMAP_TILE
+        ox, oy = pos
+        bg = pygame.Rect(ox - 2, oy - 2, world.grid.width * ts + 4, world.grid.height * ts + 4)
+        pygame.draw.rect(self.screen, theme.PANEL_BG, bg, border_radius=4)
+        for y in range(world.grid.height):
+            for x in range(world.grid.width):
+                if (x, y) not in world.explored and world.explored:
+                    continue
+                tile = world.grid.get(x, y)
+                base = _TILE_COLORS[tile]
+                if world.visible and (x, y) not in world.visible:
+                    base = _dim(base, 0.55)
+                pygame.draw.rect(self.screen, base, (ox + x * ts, oy + y * ts, ts, ts))
+        # Draw entities on top.
+        for enemy in world.enemies:
+            if not enemy.is_alive:
+                continue
+            if world.visible and enemy.position not in world.visible:
+                continue
+            ex, ey = enemy.position
+            pygame.draw.rect(self.screen, theme.NEON_MAGENTA, (ox + ex * ts, oy + ey * ts, ts, ts))
+        px, py = world.player.position
+        pygame.draw.rect(self.screen, theme.PLAYER_COLOR, (ox + px * ts, oy + py * ts, ts, ts))
 
 
 __all__ = ["UIManager", "TILE_SIZE"]

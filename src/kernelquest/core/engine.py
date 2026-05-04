@@ -15,6 +15,8 @@ from kernelquest.core.config import (
     PLAYER_NAME_MAX_LENGTH,
     SCORE_PER_DESCENT,
     SCORE_PER_MOVE,
+    SCREEN_SHAKE_DAMAGE_INTENSITY,
+    SCREEN_SHAKE_KILL_INTENSITY,
     WINDOW_HEIGHT,
     WINDOW_TITLE,
     WINDOW_WIDTH,
@@ -22,11 +24,16 @@ from kernelquest.core.config import (
 from kernelquest.core.state import GameState
 from kernelquest.data.database import Database
 from kernelquest.data.repositories import ScoreRepository
+from kernelquest.entities.malware import Malware
 from kernelquest.entities.player import Player
 from kernelquest.systems.ai import run_enemy_turn
 from kernelquest.systems.combat import player_attack
 from kernelquest.systems.inventory import pickup_item_at, use_cache_slot
+from kernelquest.ui import theme
+from kernelquest.ui.console_log import ConsoleLog
+from kernelquest.ui.fx import ParticleSystem, ScreenShake
 from kernelquest.ui.renderer import UIManager
+from kernelquest.ui.sfx import SoundManager
 from kernelquest.ui.viewport import Viewport
 from kernelquest.world.generator import generate_world
 from kernelquest.world.tile import TileType
@@ -50,6 +57,11 @@ class GameEngine:
         self._viewport: Viewport = Viewport.centered(WINDOW_WIDTH, WINDOW_HEIGHT, 20, 20)
         self._name_buffer: str = ""
 
+        self._console = ConsoleLog()
+        self._shake = ScreenShake()
+        self._particles = ParticleSystem()
+        self._sfx: SoundManager | None = None
+
     # ----- public entry point -----
 
     def run(self) -> None:
@@ -62,11 +74,13 @@ class GameEngine:
             screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
             pygame.display.set_caption(WINDOW_TITLE)
             ui = UIManager(screen)
+            self._sfx = SoundManager()
             clock = pygame.time.Clock()
 
             while self._state is not GameState.QUIT:
                 clock.tick(FPS)
                 self._handle_events()
+                self._step_fx()
                 self._render(ui)
         finally:
             pygame.quit()
@@ -75,6 +89,10 @@ class GameEngine:
             log.info("GameEngine shutdown complete.")
 
     # ----- per-frame -----
+
+    def _step_fx(self) -> None:
+        self._shake.step()
+        self._particles.step()
 
     def _handle_events(self) -> None:
         for event in pygame.event.get():
@@ -112,12 +130,13 @@ class GameEngine:
             self._end_player_turn()
             return
 
-        # Use cache slot via number keys 1-9.
         slot_index = _key_to_slot(event.key)
         if slot_index is not None:
             message = use_cache_slot(world, slot_index)
             if message is not None:
-                log.info("[INV] %s", message)
+                self._console.info(message)
+                self._play_sfx("pickup")
+                world.recompute_fov()
                 self._after_player_action()
             return
 
@@ -155,8 +174,16 @@ class GameEngine:
             ui.render_menu()
         elif self._state is GameState.PLAYING and self._world is not None:
             ui.clear()
-            ui.render_world(self._world, self._viewport)
-            ui.render_hud(self._world.player, sector=self._world.player.depth_reached)
+            ui.render_world(
+                self._world,
+                self._viewport,
+                shake=self._shake,
+                particles=self._particles,
+            )
+            ui.render_hud(
+                self._world.player, sector=self._world.player.depth_reached, world=self._world
+            )
+            ui.render_console(self._console)
         elif self._state is GameState.GAME_OVER and self._world is not None:
             ui.render_game_over(self._world.player, self._name_buffer)
         ui.present()
@@ -167,41 +194,63 @@ class GameEngine:
         self._rng = random.Random(self._seed)
         player = Player()
         self._world = generate_world(player=player, depth=1, rng=self._rng)
+        self._world.recompute_fov()
         self._viewport = Viewport.centered(
             WINDOW_WIDTH, WINDOW_HEIGHT, self._world.grid.width, self._world.grid.height
         )
         self._name_buffer = ""
+        self._console.clear()
+        self._console.info(f"Process spawned in sector 0x{player.depth_reached:02X}")
+        self._particles.clear()
         self._state = GameState.PLAYING
 
-    def _player_attacks(self, enemy: object) -> None:
+    def _player_attacks(self, enemy: Malware) -> None:
         assert self._world is not None
-        # Enemy is a Malware here; type narrowed by caller.
-        from kernelquest.entities.malware import Malware  # local to avoid cycles
-
-        assert isinstance(enemy, Malware)
         player = self._world.player
         if not player.spend_cycle():
             return
         result = player_attack(self._world, enemy, self._rng)
-        log.info("[CBT] %s", result.log_message)
+        self._console.info(result.log_message)
+        self._play_sfx("attack")
+        # Particle burst in tile-space.
+        ex, ey = enemy.position
+        self._particles.burst(
+            (ex + 0.5, ey + 0.5),
+            theme.NEON_MAGENTA if result.killed else theme.NEON_AMBER,
+            self._rng,
+            count=14 if result.killed else 6,
+        )
         if result.killed:
+            self._shake.punch(SCREEN_SHAKE_KILL_INTENSITY)
             self._world.remove_dead_enemies()
+            self._play_sfx("explode")
+        self._world.recompute_fov()
         self._after_player_action()
 
     def _on_player_moved(self) -> None:
         assert self._world is not None
         player = self._world.player
         player.score += SCORE_PER_MOVE
+        self._play_sfx("move")
+        self._world.recompute_fov()
 
-        # Pickup any item underfoot.
         message = pickup_item_at(self._world, player.position)
         if message is not None:
-            log.info("[INV] %s", message)
+            self._console.info(message)
+            self._play_sfx("pickup")
+            self._particles.burst(
+                (player.position[0] + 0.5, player.position[1] + 0.5),
+                theme.NEON_GREEN,
+                self._rng,
+                count=8,
+                speed=1.6,
+            )
 
         tile = self._world.grid.get(*player.position)
         if tile is TileType.BAD_SECTOR:
             player.take_damage(BAD_SECTOR_DAMAGE, source="Bad Sector")
-            log.info("[ENV] Bad Sector burned %d RAM", BAD_SECTOR_DAMAGE)
+            self._console.warn(f"Bad Sector burned {BAD_SECTOR_DAMAGE} RAM")
+            self._shake.punch(SCREEN_SHAKE_DAMAGE_INTENSITY)
         elif tile is TileType.EXIT:
             self._descend()
             return
@@ -213,7 +262,6 @@ class GameEngine:
         self._after_player_action()
 
     def _after_player_action(self) -> None:
-        """Common post-action hook: run AI when cycles run out, check death."""
         assert self._world is not None
         player = self._world.player
         if not player.is_alive:
@@ -223,33 +271,42 @@ class GameEngine:
             self._end_player_turn()
 
     def _end_player_turn(self) -> None:
-        """Hand the turn to the enemies, then refill the player's cycles."""
         assert self._world is not None
+        starting_ram = self._world.player.ram
         for message in run_enemy_turn(self._world, self._rng):
-            log.info("[AI ] %s", message)
+            self._console.warn(message)
+        if self._world.player.ram < starting_ram:
+            self._shake.punch(SCREEN_SHAKE_DAMAGE_INTENSITY)
+            self._play_sfx("attack")
         if not self._world.player.is_alive:
             self._enter_game_over()
             return
         self._world.player.tick_status_effects()
         self._world.player.end_turn()
+        self._world.recompute_fov()
 
     def _descend(self) -> None:
         assert self._world is not None
         player = self._world.player
         player.depth_reached += 1
         player.score += SCORE_PER_DESCENT
-        log.info("[SYS] Descending to sector 0x%02X", player.depth_reached)
+        self._console.info(f"Descending to sector 0x{player.depth_reached:02X}")
+        self._play_sfx("descend")
         self._world = generate_world(
             player=player,
             depth=player.depth_reached,
             rng=self._rng,
         )
+        self._world.recompute_fov()
+        self._particles.clear()
         player.end_turn()
 
     def _enter_game_over(self) -> None:
         assert self._world is not None
         if self._world.player.crash_cause is None:
             self._world.player.crash_cause = "Out of RAM"
+        self._console.crit(f"SYSTEM CRASH — {self._world.player.crash_cause}")
+        self._play_sfx("crash")
         self._state = GameState.GAME_OVER
 
     def _save_run(self) -> None:
@@ -275,9 +332,12 @@ class GameEngine:
         self._name_buffer = ""
         self._state = GameState.MENU
 
+    def _play_sfx(self, name: str) -> None:
+        if self._sfx is not None:
+            self._sfx.play(name)
+
 
 def _key_to_delta(key: int) -> tuple[int, int] | None:
-    """Map a pygame key constant to a `(dx, dy)` step or `None`."""
     if key in (pygame.K_LEFT, pygame.K_a):
         return (-1, 0)
     if key in (pygame.K_RIGHT, pygame.K_d):
@@ -290,7 +350,6 @@ def _key_to_delta(key: int) -> tuple[int, int] | None:
 
 
 def _key_to_slot(key: int) -> int | None:
-    """Map number keys 1-9 to cache slots 0-8."""
     mapping = {
         pygame.K_1: 0,
         pygame.K_2: 1,

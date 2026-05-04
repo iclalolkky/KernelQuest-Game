@@ -26,6 +26,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
   - `ui/renderer.py`: renders enemies (with HP pips), items, EXIT tile, scan-boost overlay, and a numbered cache strip in the HUD.
   - `core/engine.py`: refactored to drive the new `World`, run AI when cycles deplete, descend on `EXIT`, and handle 1-9 cache hotkeys.
   - 33 new unit tests covering generator, malware, pathfinding, combat, items, inventory, world, and AI behavior.
+- **Phase 3 — UI & Polish (complete; chiptune loop deferred).**
+  - `ui/console_log.py`: ring-buffered, color-coded severity log (`INFO`/`WARN`/`ERROR`/`CRIT`); rendered as a glassmorphism feed at the bottom of the screen.
+  - `systems/fov.py` + `World.recompute_fov`: Bresenham line-of-sight visibility with dimmed "explored" memory; `ScanBoost` extends the radius.
+  - `ui/renderer.py`: animated RAM bar with low-RAM color shifts, live `math.sin` CPU waveform, mini-map with entity markers, glass side panel.
+  - `ui/fx.py`: decaying screen shake (applied on damage and kills) plus a particle system used for attack/kill/pickup bursts.
+  - `ui/sfx.py`: `SoundManager` with procedurally-synthesized square-wave SFX (move/attack/explode/pickup/crash/descend) that gracefully no-ops when no audio device is available.
+  - 17 new unit tests for the console log, FOV, FX, and World fog-of-war integration.
 - Initial project documentation: `README.md`, `ROADMAP.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, `AGENTS.md`.
 - Product spec: `docs/PRD_AND_ARCH.md`.
 

@@ -70,3 +70,21 @@ DATABASE_FILENAME: Final[str] = "database.db"
 
 # --- Game-over name input ---
 PLAYER_NAME_MAX_LENGTH: Final[int] = 16
+
+# --- Console log ---
+CONSOLE_LOG_CAPACITY: Final[int] = 6
+
+# --- Fog of war ---
+SCAN_BOOST_RADIUS_BONUS: Final[int] = 3
+
+# --- Juice / FX ---
+SCREEN_SHAKE_DAMAGE_INTENSITY: Final[int] = 6
+SCREEN_SHAKE_KILL_INTENSITY: Final[int] = 4
+SCREEN_SHAKE_DECAY: Final[float] = 0.85
+PARTICLE_LIFETIME_FRAMES: Final[int] = 24
+HUD_CPU_WAVE_WIDTH: Final[int] = 232
+HUD_CPU_WAVE_HEIGHT: Final[int] = 28
+HUD_MINIMAP_TILE: Final[int] = 6
+
+# --- Audio ---
+AUDIO_SAMPLE_RATE: Final[int] = 22050
