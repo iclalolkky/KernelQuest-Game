@@ -6,6 +6,7 @@ __pycache__/
 .Python
 build/
 dist/
+release/
 *.egg-info/
 *.egg
 pip-wheel-metadata/
@@ -37,7 +38,7 @@ logs/
 *.log
 
 # --- Pygame / Build artifacts ---
-*.spec
+# (Note: kernelquest.spec is checked in as the canonical build recipe.)
 *.exe
 *.app/
 
