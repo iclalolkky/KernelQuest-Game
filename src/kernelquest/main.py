@@ -10,6 +10,8 @@ from __future__ import annotations
 import logging
 import sys
 
+from kernelquest.core.engine import GameEngine
+
 
 def main() -> int:
     """Bootstrap the game.
@@ -23,9 +25,7 @@ def main() -> int:
     )
     log = logging.getLogger(__name__)
     log.info("Kernel Quest booting…")
-
-    # TODO(agent): instantiate GameEngine and run the main loop (Phase 1).
-    log.info("GameEngine not yet implemented — exiting cleanly.")
+    GameEngine().run()
     return 0
 
 

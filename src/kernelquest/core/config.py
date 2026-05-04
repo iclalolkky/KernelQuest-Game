@@ -25,9 +25,14 @@ DEFAULT_SCAN_RADIUS: Final[int] = 4
 PLAYER_START_RAM: Final[int] = 100
 PLAYER_START_CPU_CYCLES: Final[int] = 5
 PLAYER_CACHE_CAPACITY: Final[int] = 8
+PLAYER_START_POSITION: Final[tuple[int, int]] = (1, 1)
 
 # --- Combat ---
 PLAYER_BASE_DAMAGE: Final[int] = 10
+BAD_SECTOR_DAMAGE: Final[int] = 5
 
 # --- Persistence ---
 DATABASE_FILENAME: Final[str] = "database.db"
+
+# --- Game-over name input ---
+PLAYER_NAME_MAX_LENGTH: Final[int] = 16

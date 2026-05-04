@@ -9,7 +9,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 ## [Unreleased]
 
 ### Added
-- Initial project documentation: `README.md`, `ROADMAP.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, `.gitignore`.
+- **Phase 0 — Bootstrapping (complete).** `pyproject.toml`, package layout, lint/format/type/test tooling, GitHub Actions CI, MIT license, issue & PR templates, `.editorconfig`, `.gitignore`.
+- **Phase 1 — Core Loop (complete).**
+  - `core/engine.py`: `GameEngine` with FPS cap, delta-time, state machine (`MENU`/`PLAYING`/`GAME_OVER`/`QUIT`), clean shutdown.
+  - `world/`: `TileType` enum (`EMPTY`, `SYSTEM_DATA`, `BAD_SECTOR`) and `MemoryGrid` with static default layout.
+  - `entities/`: `Entity` base class and `Player` with `ram`, `cpu_cycles`, `cache`, turn-based movement, damage, healing.
+  - `ui/`: `theme` palette, `Viewport` (centered grid), `UIManager` rendering grid, player, HUD, menu, and game-over screens.
+  - `data/`: `Database` with idempotent migrations, `ScoreRepository` (`insert`, `top_n`, `all`).
+  - 24 unit tests across grid, player, database.
+- Initial project documentation: `README.md`, `ROADMAP.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, `AGENTS.md`.
 - Product spec: `docs/PRD_AND_ARCH.md`.
 
 ### Changed

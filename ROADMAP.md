@@ -23,31 +23,31 @@ This roadmap breaks the project into four phases, each with concrete, testable d
 
 ---
 
-## Phase 1 — The Core Loop
+## Phase 1 — The Core Loop ✅
 
 **Goal:** A minimum playable prototype: player on a static grid, turn-based, scores persisted.
 
 ### 1.1 Engine skeleton
-- [ ] `GameEngine` class managing the main loop (`init` → `update` → `render` → `quit`).
-- [ ] `GameState` enum: `MENU`, `PLAYING`, `GAME_OVER`.
-- [ ] FPS cap, delta-time tracking, clean shutdown.
+- [x] `GameEngine` class managing the main loop (`init` → `update` → `render` → `quit`).
+- [x] `GameState` enum: `MENU`, `PLAYING`, `GAME_OVER`.
+- [x] FPS cap, delta-time tracking, clean shutdown.
 
 ### 1.2 Static grid & rendering
-- [ ] `MemoryGrid` (e.g. 20×20) with tile types: `EMPTY`, `SYSTEM_DATA`, `BAD_SECTOR`.
-- [ ] `UIManager.render_grid()` draws cells with neon palette.
-- [ ] Camera/viewport (if grid > screen).
+- [x] `MemoryGrid` (e.g. 20×20) with tile types: `EMPTY`, `SYSTEM_DATA`, `BAD_SECTOR`.
+- [x] `UIManager.render_grid()` draws cells with neon palette.
+- [x] Camera/viewport (if grid > screen).
 
 ### 1.3 Player movement
-- [ ] `Entity` base class.
-- [ ] `Player` with `ram`, `cpu_cycles`, `cache`, `position`.
-- [ ] Keyboard input → `move(dx, dy)`; respect walls and grid bounds.
-- [ ] Turn-based tick: each player action consumes a CPU cycle and advances the world.
+- [x] `Entity` base class.
+- [x] `Player` with `ram`, `cpu_cycles`, `cache`, `position`.
+- [x] Keyboard input → `move(dx, dy)`; respect walls and grid bounds.
+- [x] Turn-based tick: each player action consumes a CPU cycle and advances the world.
 
 ### 1.4 Persistence groundwork
-- [ ] `database.py`: open/close SQLite, run migrations.
-- [ ] `scores` table (`id`, `player_name`, `depth_reached`, `total_score`, `crash_cause`, `timestamp`).
-- [ ] `ScoreRepository` with `insert`, `top_n`, `all`.
-- [ ] Game-over flow: prompt name → write row → return to menu.
+- [x] `database.py`: open/close SQLite, run migrations.
+- [x] `scores` table (`id`, `player_name`, `depth_reached`, `total_score`, `crash_cause`, `timestamp`).
+- [x] `ScoreRepository` with `insert`, `top_n`, `all`.
+- [x] Game-over flow: prompt name → write row → return to menu.
 
 **Exit criteria:** Player walks on a grid; closing the game writes a row to `scores`.
 
