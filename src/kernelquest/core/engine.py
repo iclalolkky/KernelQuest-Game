@@ -141,17 +141,17 @@ _KEY_BITS = "meta.bits"
 _POLYGON_KINDS: tuple[str, ...] = ("enemy", "item", "program", "daemon", "patch")
 
 _MENU_OPTIONS: tuple[str, ...] = (
-    "New Run",
-    "Daily Run",
-    "Training",
-    "How to Play",
-    "Codex",
-    "High Scores",
-    "Daily Board",
-    "Stats",
-    "Shop",
-    "Settings",
-    "Quit",
+    "new_run",
+    "daily_run",
+    "training",
+    "howtoplay",
+    "codex",
+    "high_scores",
+    "daily_board",
+    "stats",
+    "shop",
+    "settings",
+    "quit",
 )
 
 
@@ -448,30 +448,30 @@ class GameEngine:
 
     def _activate_menu_option(self) -> None:
         choice = _MENU_OPTIONS[self._menu_index]
-        if choice == "New Run":
+        if choice == "new_run":
             self._open_distro_select(daily=False)
-        elif choice == "Daily Run":
+        elif choice == "daily_run":
             self._open_distro_select(daily=True)
-        elif choice == "Training":
+        elif choice == "training":
             self._start_tutorial_range()
-        elif choice == "How to Play":
+        elif choice == "howtoplay":
             self._open_howtoplay()
-        elif choice == "Codex":
+        elif choice == "codex":
             self._open_codex()
-        elif choice == "High Scores":
+        elif choice == "high_scores":
             self._state = GameState.HIGH_SCORES
-        elif choice == "Daily Board":
+        elif choice == "daily_board":
             self._state = GameState.DAILY_BOARD
-        elif choice == "Stats":
+        elif choice == "stats":
             self._state = GameState.STATS
-        elif choice == "Shop":
+        elif choice == "shop":
             self._shop_index = 0
             self._shop_message = None
             self._state = GameState.SHOP
-        elif choice == "Settings":
+        elif choice == "settings":
             self._settings_index = 0
             self._state = GameState.SETTINGS
-        elif choice == "Quit":
+        elif choice == "quit":
             self._state = GameState.QUIT
 
     def _handle_back_key(self, event: pygame.event.Event) -> None:
@@ -686,7 +686,10 @@ class GameEngine:
 
     def _render(self, ui: UIManager) -> None:
         if self._state is GameState.MENU:
-            ui.render_menu(list(_MENU_OPTIONS), self._menu_index)
+            from kernelquest.ui.i18n import t as _t
+
+            labels = [_t(f"menu.{key}") for key in _MENU_OPTIONS]
+            ui.render_menu(labels, self._menu_index)
         elif self._state is GameState.PLAYING and self._world is not None:
             ui.clear()
             ui.render_world(
@@ -1083,7 +1086,11 @@ class GameEngine:
             # gate this on full run success criteria).
             if isinstance(enemy, KernelPanic):
                 self._unlock_lore_for("true_ending")
-                self._start_ending()
+                # Phase 11: during a structured run, the ending only fires
+                # from _finish_run(success=True) so the player still has to
+                # clear the remaining releases.
+                if self._run_progress is None:
+                    self._start_ending()
 
     def _maybe_award_daemon(self, *, force: bool = False) -> None:
         if self._daemons_repo is None:
@@ -1276,13 +1283,21 @@ class GameEngine:
         self._finish_current_milestone(reached_exit=True)
 
     def _finish_current_milestone(self, *, reached_exit: bool) -> None:
-        """Close the active milestone; transition to the result screen / failure."""
+        """Close the active milestone; transition to the result screen / failure.
+
+        Reaching the EXIT is enough to advance — the score *target* is now a
+        bonus goal, not a hard fail-state. Hitting it grants extra bits and
+        marks the milestone as ``target_hit`` for the result UI.
+        """
         assert self._world is not None
         assert self._run_progress is not None
         player = self._world.player
         score_in_milestone = self._run_progress.milestone_score(player.score)
         target = self._run_progress.current_target
-        cleared = reached_exit and score_in_milestone >= target
+        target_hit = score_in_milestone >= target
+        # Reaching the exit always clears the milestone now. Failing the run
+        # only happens through actual death (handled by _enter_game_over).
+        cleared = reached_exit
         kind = self._run_progress.current_kind
 
         rec = self._run_progress.finish_current(
@@ -1294,10 +1309,11 @@ class GameEngine:
         # Bits earned per milestone — base + bonuses + skip-tag multiplier.
         kill_mult = self._distro.bits_kill_multiplier if self._distro is not None else 1.0
         bits = int(round(score_in_milestone / 25 * kill_mult))
+        if target_hit:
+            bits += 5  # bonus for hitting the score goal
         if self._double_bits_pending:
             bits *= 2
             self._double_bits_pending = False
-        # Vendor stock cleared, skip flags reset for next milestone.
         self._milestone_result_panel = {
             "release_index": rec.release_index,
             "milestone_index": rec.milestone_index,
@@ -1306,11 +1322,12 @@ class GameEngine:
             "target": target,
             "bits": bits,
             "cleared": cleared,
+            "target_hit": target_hit,
             "boss": kind is MilestoneKind.BOSS,
         }
 
         if not cleared:
-            # Failure — out of milestone budget. Same hook as crash.
+            # Should not happen — _descend only calls us with reached_exit=True.
             player.crash_cause = player.crash_cause or "Target missed"
             self._enter_game_over()
             return
@@ -1320,7 +1337,8 @@ class GameEngine:
             current = self._meta.get_int(_KEY_BITS, 0)
             self._meta.set_int(_KEY_BITS, current + bits)
         self._console.info(
-            f"milestone {rec.release_index + 1}.{rec.milestone_index + 1} cleared (+{bits}b)"
+            f"milestone {rec.release_index + 1}.{rec.milestone_index + 1} "
+            f"cleared (+{bits}b{', target hit' if target_hit else ''})"
         )
         self._state = GameState.MILESTONE_RESULT
 
@@ -2222,16 +2240,31 @@ class GameEngine:
         self._state = GameState.DISTRO_SELECT
 
     def _distro_rows(self) -> list[dict[str, object]]:
+        from kernelquest.ui.i18n import t
+
         unlocked = self._distros_repo.unlocked_keys() if self._distros_repo else {DISTROS[0].key}
         rows: list[dict[str, object]] = []
         for d in DISTROS:
+            # i18n keys use the distro key; fall back to the static catalog text.
+            name = t(f"distro.{d.key}.name")
+            if name == f"distro.{d.key}.name":
+                name = d.name
+            description = t(f"distro.{d.key}.desc")
+            if description == f"distro.{d.key}.desc":
+                description = d.description
+            signature = t(f"distro.{d.key}.signature")
+            if signature == f"distro.{d.key}.signature":
+                signature = d.signature
+            unlock_hint = t(f"distro.{d.key}.unlock")
+            if unlock_hint == f"distro.{d.key}.unlock":
+                unlock_hint = d.unlock_hint
             rows.append(
                 {
                     "key": d.key,
-                    "name": d.name,
-                    "description": d.description,
-                    "signature": d.signature,
-                    "unlock_hint": d.unlock_hint,
+                    "name": name,
+                    "description": description,
+                    "signature": signature,
+                    "unlock_hint": unlock_hint,
                     "unlocked": d.key in unlocked,
                     "bonus_ram": d.bonus_ram,
                     "bonus_cycles": d.bonus_cycles,
@@ -2279,18 +2312,8 @@ class GameEngine:
         if self._run_progress.is_run_complete:
             self._finish_run(success=True)
             return
-        # Boss milestones skip the vendor (loot drop instead).
-        kind = self._run_progress.current_kind
-        # Open vendor between non-first milestones; first milestone of run skips.
-        if (
-            self._milestone_result_panel.get("kind") != MilestoneKind.BOSS.value
-            or kind is not MilestoneKind.SECTOR_A
-        ):
-            # Always offer vendor after every played milestone (per ROADMAP 11.3).
-            self._open_vendor()
-        else:
-            self._generate_next_sector()
-            self._state = GameState.PLAYING
+        # ROADMAP 11.3 — open the Vendor after every played milestone.
+        self._open_vendor()
 
     def _skip_current_milestone(self) -> None:
         """Mark the just-played milestone as skipped instead and grant a tag."""

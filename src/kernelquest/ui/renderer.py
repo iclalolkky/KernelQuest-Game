@@ -95,6 +95,10 @@ class UIManager:
         # Phase 7 — sprite animation clock + selected palette.
         self.frame_clock = FrameClock()
         self.player_palette: PlayerPalette = get_player_palette("kernel")
+        # Interactive menu — animated character avatar position.
+        self._menu_avatar_y: float = 0.0
+        self._menu_avatar_target_y: float = 0.0
+        self._menu_phase: float = 0.0
 
     # ----- frame plumbing -----
 
@@ -371,26 +375,121 @@ class UIManager:
     # ----- screens -----
 
     def render_menu(self, options: list[str], selected: int) -> None:
+        from kernelquest.ui.i18n import t
+
         self.clear()
-        title_surface = self.font_title.render("KERNEL QUEST", True, theme.NEON_CYAN)
-        subtitle = self.font_body.render("The Memory Leak", True, theme.NEON_GREEN)
         cx = WINDOW_WIDTH // 2
         cy = WINDOW_HEIGHT // 2
-        self.screen.blit(title_surface, title_surface.get_rect(center=(cx, cy - 180)))
-        self.screen.blit(subtitle, subtitle.get_rect(center=(cx, cy - 140)))
+
+        # Animated background — slow scrolling grid + scanlines.
+        self._render_menu_background()
+
+        # Title block with subtle glow.
+        title_surface = self.font_title.render("KERNEL QUEST", True, theme.NEON_CYAN)
+        glow = self.font_title.render("KERNEL QUEST", True, theme.NEON_GREEN)
+        title_rect = title_surface.get_rect(center=(cx, cy - 220))
+        self.screen.blit(glow, glow.get_rect(center=(cx + 2, cy - 218)))
+        self.screen.blit(title_surface, title_rect)
+
+        subtitle = self.font_body.render("// The Memory Leak", True, theme.NEON_AMBER)
+        self.screen.blit(subtitle, subtitle.get_rect(center=(cx, cy - 180)))
+
+        # Layout the option list as a left-aligned column anchored on cx.
+        first_y = cy - 80
+        row_height = 34
+        label_x = cx + 16
+        avatar_x = cx - 200
+
+        # Animate avatar position towards the selected row.
+        self._menu_phase += 0.10
+        target_y = float(first_y + selected * row_height)
+        self._menu_avatar_target_y = target_y
+        if self._menu_avatar_y == 0.0:
+            self._menu_avatar_y = target_y
+        # Critically damped slide.
+        self._menu_avatar_y += (target_y - self._menu_avatar_y) * 0.22
 
         for i, label in enumerate(options):
-            color = theme.NEON_CYAN if i == selected else theme.TEXT_PRIMARY
-            prefix = "▶ " if i == selected else "  "
-            surf = self.font_body.render(f"{prefix}{label}", True, color)
-            self.screen.blit(surf, surf.get_rect(center=(cx, cy - 60 + i * 32)))
+            row_y = first_y + i * row_height
+            is_sel = i == selected
+            color = theme.NEON_CYAN if is_sel else theme.TEXT_PRIMARY
+            if is_sel:
+                # Highlight bar behind the active row.
+                bar = pygame.Rect(label_x - 12, row_y - 14, 360, 28)
+                surf = pygame.Surface(bar.size, pygame.SRCALPHA)
+                surf.fill((*theme.NEON_CYAN, 28))
+                self.screen.blit(surf, bar.topleft)
+                pygame.draw.line(
+                    self.screen,
+                    theme.NEON_CYAN,
+                    (label_x - 12, row_y + 14),
+                    (label_x + 348, row_y + 14),
+                    1,
+                )
+            text = self.font_body.render(label, True, color)
+            self.screen.blit(text, text.get_rect(midleft=(label_x, row_y)))
 
+        # Draw the character avatar at its animated position.
+        bob = math.sin(self._menu_phase) * 2.0
+        self._draw_menu_avatar((avatar_x, int(self._menu_avatar_y + bob)))
+
+        # Footer hint — translated.
         hint = self.font_small.render(
-            "[↑/↓] navigate  [enter] select  [esc] quit",
+            t("menu.hint"),
             True,
             theme.TEXT_DIM,
         )
         self.screen.blit(hint, hint.get_rect(center=(cx, WINDOW_HEIGHT - 40)))
+
+    def _render_menu_background(self) -> None:
+        """Slow-scrolling cyberpunk grid lines behind the menu."""
+        offset = int(self._menu_phase * 6) % 40
+        line_color = (*theme.GRID_LINE, 60)
+        # Translucent overlay surface so the grid blends with the BG.
+        layer = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
+        for y in range(-40 + offset, WINDOW_HEIGHT, 40):
+            pygame.draw.line(layer, line_color, (0, y), (WINDOW_WIDTH, y), 1)
+        for x in range(0, WINDOW_WIDTH, 40):
+            pygame.draw.line(layer, line_color, (x, 0), (x, WINDOW_HEIGHT), 1)
+        self.screen.blit(layer, (0, 0))
+
+    def _draw_menu_avatar(self, pos: tuple[int, int]) -> None:
+        """Tiny pixel avatar (the protagonist 'process') used on the menu."""
+        x, y = pos
+        # Idle cycle: 4 frames driven by _menu_phase.
+        frame = int(self._menu_phase * 4) % 4
+        leg_offset = (0, 1, 0, -1)[frame]
+
+        body = self.player_palette.core
+        accent = self.player_palette.fin
+        glow = self.player_palette.halo
+
+        # Soft glow halo.
+        halo = pygame.Surface((44, 44), pygame.SRCALPHA)
+        pygame.draw.circle(halo, (*glow, 60), (22, 22), 20)
+        self.screen.blit(halo, (x - 22, y - 22))
+
+        # Head.
+        pygame.draw.rect(self.screen, body, pygame.Rect(x - 6, y - 14, 12, 10), border_radius=2)
+        # Visor.
+        pygame.draw.rect(self.screen, accent, pygame.Rect(x - 5, y - 11, 10, 3))
+        # Body.
+        pygame.draw.rect(self.screen, body, pygame.Rect(x - 8, y - 4, 16, 10), border_radius=2)
+        # Belt accent.
+        pygame.draw.line(self.screen, accent, (x - 8, y + 2), (x + 8, y + 2), 1)
+        # Arms.
+        pygame.draw.rect(self.screen, body, pygame.Rect(x - 11, y - 3, 3, 8))
+        pygame.draw.rect(self.screen, body, pygame.Rect(x + 8, y - 3, 3, 8))
+        # Legs (animated).
+        pygame.draw.rect(self.screen, body, pygame.Rect(x - 6, y + 6, 4, 6 + leg_offset))
+        pygame.draw.rect(self.screen, body, pygame.Rect(x + 2, y + 6, 4, 6 - leg_offset))
+        # Pointing arrow towards the menu row.
+        tip_x = x + 18
+        pygame.draw.polygon(
+            self.screen,
+            theme.NEON_CYAN,
+            [(tip_x, y - 5), (tip_x + 8, y), (tip_x, y + 5)],
+        )
 
     def render_high_scores(self, rows: list[tuple[str, int, int, str, str]]) -> None:
         self.clear()
@@ -1204,7 +1303,7 @@ class UIManager:
         score = cast(int, panel.get("score", 0))
         target = cast(int, panel.get("target", 0))
         bits = cast(int, panel.get("bits", 0))
-        cleared = bool(panel.get("cleared"))
+        target_hit = bool(panel.get("target_hit"))
         is_boss = bool(panel.get("boss"))
 
         lines = [
@@ -1212,7 +1311,7 @@ class UIManager:
             f"{t('milestone.milestone')}: {ms} / 3   ({kind})",
             f"{t('milestone.score')}: {score} / {target}",
             f"{t('milestone.bits')}: +{bits}",
-            t("milestone.cleared") if cleared else t("milestone.failed"),
+            t("milestone.target_hit") if target_hit else t("milestone.target_missed"),
         ]
         y = cy - 90
         for line in lines:
