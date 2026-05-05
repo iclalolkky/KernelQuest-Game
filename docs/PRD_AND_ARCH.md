@@ -40,6 +40,12 @@ Persistent meta-progression purchased with `bits` currency.
 - Manages the main game loop.
 - Handles state transitions (`MENU` → `PLAYING` → `GAME_OVER`).
 - Owns the SQLite connection.
+- **Delegates per-frame event handling and rendering to a `GameStateHandler`** selected by the current `GameState`. The dispatch table lives in `src/kernelquest/core/states/registry.py`; concrete handlers live next to it (`menu_states.py`, `playing_states.py`, `shop_state.py`, `tutorial_state.py`, `cinematic_states.py`, `game_over_state.py`). `GameEngine` keeps global hotkeys (e.g. `F11` fullscreen, `M` mute) and is the single owner of all game data; handlers are stateless singletons that read/write through the engine they are passed.
+
+### A.1. `GameStateHandler` (State Pattern)
+- Lightweight base class in `src/kernelquest/core/states/base.py` with `enter` / `exit` / `handle_event` / `update` / `render` hooks.
+- One subclass per `GameState` (except `QUIT`, which terminates the loop). Subclasses forward to engine helpers (e.g. `engine._handle_playing_key`) and lift the corresponding render branch out of `engine._render`.
+- Public engine helpers exposed for handlers: `start_new_run`, `reset_to_menu`, `compute_bonus`.
 
 ### B. `MemoryGrid` (Map)
 - Generates a 20×20 (adjustable) grid.

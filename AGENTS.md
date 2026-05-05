@@ -25,7 +25,7 @@ ruff check . && black --check . && mypy src && pytest
 - **Pick one ROADMAP checkbox per task.** Do not bundle unrelated changes.
 - **Respect module boundaries** (see [CLAUDE.md §4](CLAUDE.md#4-architectural-boundaries)).
 - **Use OS-themed names** (`ram`, `cpu_cycles`, `sector`, `cache`, `crash_cause`).
-- **Tests are not optional** for new logic in `world/`, `entities/`, `systems/`, `data/`.
+- **Tests are not optional** for new logic in `world/`, `entities/`, `systems/`, `data/`, `core/states/`.
 - **Never commit** `*.db`, `.venv/`, `__pycache__/`, or generated assets.
 - **Conventional Commits** for every commit message.
 

@@ -17,7 +17,7 @@ This file is the **source of truth** for any AI agent (Claude, Copilot, Cursor, 
 ## 2. Golden Rules
 
 1. **Stay in scope.** Implement only what the current task / roadmap item requires. Do not refactor unrelated modules.
-2. **Follow the existing structure.** New code goes in the appropriate subpackage (`core/`, `world/`, `entities/`, `systems/`, `ui/`, `data/`).
+2. **Follow the existing structure.** New code goes in the appropriate subpackage (`core/`, `core/states/`, `world/`, `entities/`, `systems/`, `ui/`, `data/`).
 3. **Domain naming.** Use OS/architecture metaphors:
    - `process_id` (not `player_id`)
    - `ram` (not `health`)
@@ -45,12 +45,14 @@ This file is the **source of truth** for any AI agent (Claude, Copilot, Cursor, 
 ui/  ────────────► reads from   core/, world/, entities/   (never writes game state)
 systems/ ────────► mutates       world/, entities/
 core/ ───────────► orchestrates  everything
+core/states/ ────► State Pattern dispatch for GameEngine
 data/ ───────────► owns          SQLite I/O                (no other module touches sqlite3)
 ```
 
 - **UI layer is render-only.** No game-logic decisions inside `ui/`.
 - **Data layer is the only place** that imports `sqlite3`.
 - **Entities** never know about Pygame. Rendering is handled by `ui/renderer.py`.
+- **`GameEngine` delegates** per-state event handling and rendering to `GameStateHandler` subclasses in `core/states/`. Handlers are stateless singletons keyed by `GameState`; the engine remains the single owner of game data and global hotkeys.
 
 ## 5. Database Conventions
 

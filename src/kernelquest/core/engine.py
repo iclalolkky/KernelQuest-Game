@@ -35,6 +35,7 @@ from kernelquest.core.run_progress import (
 )
 from kernelquest.core.settings import Settings
 from kernelquest.core.state import GameState
+from kernelquest.core.states import GameStateHandler, build_state_registry
 from kernelquest.data.database import Database
 from kernelquest.data.distros_catalog import (
     DISTROS,
@@ -263,6 +264,31 @@ class GameEngine:
         self._first_descent_pending: bool = True
         self._first_boss_pending: bool = True
         self._first_crash_pending: bool = True
+        # State Pattern — concrete handlers keyed by ``GameState``.
+        self._state_handlers: dict[GameState, GameStateHandler] = build_state_registry()
+
+    @property
+    def _active_state(self) -> GameStateHandler | None:
+        """Return the handler for the current :class:`GameState`, if any.
+
+        :attr:`GameState.QUIT` has no handler; in that case the main loop
+        terminates so callers never need to dispatch through it.
+        """
+        return self._state_handlers.get(self._state)
+
+    # ----- public helpers used by state handlers -----
+
+    def start_new_run(self, *, daily: bool = False, distro_key: str | None = None) -> None:
+        """Public entry point for state handlers to launch a fresh run."""
+        self._start_new_run(daily=daily, distro_key=distro_key)
+
+    def reset_to_menu(self) -> None:
+        """Public entry point for state handlers to return to the main menu."""
+        self._reset_to_menu()
+
+    def compute_bonus(self) -> PlayerBonus:
+        """Public passthrough for state handlers needing the run-start bonus."""
+        return self._compute_bonus()
 
     # ----- public entry point -----
 
@@ -387,44 +413,9 @@ class GameEngine:
                     self._sfx.set_muted(self._settings.muted)
                 continue
 
-            if self._state is GameState.MENU:
-                self._handle_menu_key(event)
-            elif self._state is GameState.PLAYING:
-                self._handle_playing_key(event)
-            elif self._state is GameState.TUTORIAL:
-                self._handle_tutorial_key(event)
-            elif self._state is GameState.HOWTOPLAY:
-                self._handle_howtoplay_key(event)
-            elif self._state is GameState.GAME_OVER:
-                self._handle_game_over_key(event)
-            elif self._state in (GameState.HIGH_SCORES, GameState.STATS, GameState.DAILY_BOARD):
-                self._handle_back_key(event)
-            elif self._state is GameState.SHOP:
-                self._handle_shop_key(event)
-            elif self._state is GameState.SETTINGS:
-                self._handle_settings_key(event)
-            elif self._state is GameState.PATCH_PICK:
-                self._handle_patch_pick_key(event)
-            elif self._state in (GameState.INTRO, GameState.ENDING):
-                self._handle_cinematic_key(event)
-            elif self._state is GameState.CODEX:
-                self._handle_codex_key(event)
-            elif self._state is GameState.STACK_TRACE:
-                self._handle_stack_trace_key(event)
-            elif self._state is GameState.BESTIARY:
-                self._handle_bestiary_key(event)
-            elif self._state is GameState.INSPECT:
-                self._handle_inspect_key(event)
-            elif self._state is GameState.TUTORIAL_RANGE:
-                self._handle_range_key(event)
-            elif self._state is GameState.DISTRO_SELECT:
-                self._handle_distro_select_key(event)
-            elif self._state is GameState.VENDOR:
-                self._handle_vendor_key(event)
-            elif self._state is GameState.MILESTONE_RESULT:
-                self._handle_milestone_result_key(event)
-            elif self._state is GameState.RUN_SUMMARY:
-                self._handle_run_summary_key(event)
+            handler = self._active_state
+            if handler is not None:
+                handler.handle_event(self, event)
 
     def _apply_display_mode(self) -> None:
         flags = pygame.FULLSCREEN if self._settings.fullscreen else 0
@@ -685,160 +676,9 @@ class GameEngine:
             self._name_buffer += char
 
     def _render(self, ui: UIManager) -> None:
-        if self._state is GameState.MENU:
-            from kernelquest.ui.i18n import t as _t
-
-            labels = [_t(f"menu.{key}") for key in _MENU_OPTIONS]
-            ui.render_menu(labels, self._menu_index)
-        elif self._state is GameState.PLAYING and self._world is not None:
-            ui.clear()
-            ui.render_world(
-                self._world,
-                self._viewport,
-                shake=self._shake,
-                particles=self._particles,
-            )
-            ui.render_floating_text(self._floats, self._viewport)
-            ui.render_hud(
-                self._world.player,
-                sector=self._world.player.depth_reached,
-                world=self._world,
-                patches=[p.label for p in self._patches.selected],
-            )
-            if self._boss_active:
-                boss = self._world.living_boss()
-                if boss is not None:
-                    ui.render_boss_hp_bar(boss)
-                if self._boss_banner_ttl > 0.0:
-                    ui.render_boss_banner(
-                        boss.crash_label if boss is not None else "BOSS",
-                        self._boss_banner_ttl / 2.5,
-                    )
-                ui.render_glitch_overlay(max(0.25, self._glitch_intensity))
-            elif self._glitch_intensity > 0.0:
-                ui.render_glitch_overlay(self._glitch_intensity)
-            ui.render_console(self._console)
-            if self._show_help_overlay:
-                ui.render_help_overlay()
-            if self._settings.crt_effect:
-                ui.render_scanlines()
-        elif self._state is GameState.TUTORIAL:
-            ui.render_tutorial(
-                self._TUTORIAL_STEPS[min(self._tutorial_step, len(self._TUTORIAL_STEPS) - 1)],
-                self._tutorial_step + 1,
-                len(self._TUTORIAL_STEPS),
-            )
-            if self._settings.crt_effect:
-                ui.render_scanlines()
-        elif self._state is GameState.HOWTOPLAY:
-            ui.render_howtoplay(self._howtoplay_lines, self._howtoplay_scroll)
-        elif self._state is GameState.GAME_OVER and self._world is not None:
-            ui.render_game_over(self._world.player, self._name_buffer)
-            ui.render_post_run_summary(self._post_run_summary)
-        elif self._state is GameState.HIGH_SCORES:
-            ui.render_high_scores(self._fetch_high_scores())
-        elif self._state is GameState.DAILY_BOARD:
-            ui.render_daily_board(today_iso(), self._fetch_daily_board())
-        elif self._state is GameState.STATS:
-            avg, deaths, best, count = self._fetch_stats()
-            ui.render_stats(avg, deaths, best, count)
-        elif self._state is GameState.SHOP:
-            ui.render_shop(
-                self._fetch_bits(),
-                self._shop_rows(),
-                self._shop_index,
-                self._shop_message,
-            )
-        elif self._state is GameState.SETTINGS:
-            ui.render_settings(self._settings_rows(), self._settings_index)
-        elif self._state is GameState.PATCH_PICK:
-            ui.render_patch_pick(
-                [(p.label, p.description) for p in self._patch_choices],
-                self._patch_pick_index,
-            )
-        elif self._state in (GameState.INTRO, GameState.ENDING):
-            if self._cinematic is not None:
-                ui.render_cinematic(self._cinematic)
-        elif self._state is GameState.CODEX:
-            ui.render_codex(*self._codex_view())
-        elif self._state is GameState.STACK_TRACE:
-            depth = self._world.player.depth_reached if self._world is not None else 0
-            ui.render_stack_trace(self._stack_trace_lines, depth)
-        elif self._state is GameState.BESTIARY:
-            rows = self._bestiary_rows()
-            if rows:
-                self._bestiary_scroll = max(0, min(self._bestiary_scroll, len(rows) - 1))
-            ui.render_bestiary(rows, self._bestiary_scroll)
-        elif self._state is GameState.INSPECT and self._world is not None:
-            ui.clear()
-            ui.render_world(
-                self._world,
-                self._viewport,
-                shake=self._shake,
-                particles=self._particles,
-            )
-            ui.render_floating_text(self._floats, self._viewport)
-            ui.render_hud(
-                self._world.player,
-                sector=self._world.player.depth_reached,
-                world=self._world,
-                patches=[p.label for p in self._patches.selected],
-            )
-            ui.render_console(self._console)
-            self._render_inspect_overlay(ui)
-        elif self._state is GameState.TUTORIAL_RANGE and self._world is not None:
-            ui.clear()
-            ui.render_world(
-                self._world,
-                self._viewport,
-                shake=self._shake,
-                particles=self._particles,
-            )
-            ui.render_floating_text(self._floats, self._viewport)
-            ui.render_hud(
-                self._world.player,
-                sector=0,
-                world=self._world,
-                patches=[p.label for p in self._patches.selected],
-            )
-            ui.render_console(self._console)
-            current = self._current_lesson()
-            ui.render_range_lesson_panel(
-                lesson=current,
-                lesson_index=self._lesson_index,
-                total_lessons=len(CURRICULUM),
-                progress=self._lesson_progress,
-                completed=self._range_completed,
-            )
-            if self._polygon_open:
-                ui.render_polygon_overlay(
-                    kind=_POLYGON_KINDS[self._polygon_kind_index],
-                    items=self._polygon_current_entries(),
-                    selected=self._polygon_item_index,
-                    god_mode=self._range_god_mode,
-                    infinite_cycles=self._range_infinite_cycles,
-                    full_fov=self._range_full_fov,
-                )
-            if self._settings.crt_effect:
-                ui.render_scanlines()
-        elif self._state is GameState.DISTRO_SELECT:
-            ui.render_distro_select(
-                rows=self._distro_rows(),
-                selected=self._distro_index,
-                daily=self._distro_select_for_daily,
-            )
-        elif self._state is GameState.MILESTONE_RESULT:
-            ui.render_milestone_result(self._milestone_result_panel)
-        elif self._state is GameState.VENDOR:
-            ui.render_vendor(
-                bits=self._fetch_bits(),
-                stock=self._vendor_stock,
-                selected=self._vendor_index,
-                message=self._vendor_message,
-                free=self._vendor_free,
-            )
-        elif self._state is GameState.RUN_SUMMARY:
-            ui.render_run_summary(self._run_summary_payload)
+        handler = self._active_state
+        if handler is not None:
+            handler.render(self, ui)
         ui.present()
 
     # ----- transitions -----
