@@ -6,6 +6,116 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [3.0.0] — 2026-05-05
+
+> **The "Narrative + Distros + Bilingual" release.** Phases 7 through 11 land together: a full story arc with cinematic intro/ending, a 12-strong enemy roster with affixes and damage types, six bosses with scripted phases, an adaptive multi-stem music engine, an interactive tutorial range, six distros with structured Release → Milestone → Sector runs, a between-milestone vendor with skip-tag drops, English/Turkish localisation, and a top-to-bottom UI rework anchored by an animated character-driven main menu. Internally the engine has been refactored to the **State Pattern** (242 → 297 tests).
+
+### Added — Phase 7: Narrative & Identity ("init(0)")
+
+- **Story bible.** New `story_bible.md` defining the protagonist `init(0)`, the in-fiction OS (`/proc/legacy`), motivation, theme, and antagonist roster.
+- **Protagonist redesign.** Player is now `init(0)` — recovery process. New player sprite (`ui/sprites.py::draw_player_sprite`) with palette variants (Kernel default, Phosphor, Amber, Mono) selectable in Settings; tile glyph replaced with an animated 3-frame sprite (idle bob + halo).
+- **Enemy redesign (visual layer only).** Each species gets a unique sprite + animation cycle in `ui/sprites.py::draw_enemy_sprite` — `SyntaxError`, `LogicBomb`, `KernelPanic`, `SegFault`, `BufferOverflow`, `RootkitHydra`, `DeadlockTwin`, `TheLeak`, `ZeroDayBoss`, `ZombieProcess`. Combat behaviour is unchanged.
+- **In-run lore.** New `lore_catalog.py` (`CATALOG`, `for_condition`) — short flavour blurbs surfaced via the in-game `ConsoleLog` on first-kill / first-pickup / first-descent / first-boss / first-crash beats. Persisted in the `lore_unlocks` table and replayable from the new **Codex** menu entry.
+- **Cinematic intro & ending.** New `ui/cinematics.py::CinematicPlayer` plus `INTRO_FRAMES` / `ENDING_FRAMES` script blocks. First-launch automatically plays the intro; clearing the final boss plays the ending. Skippable with `Space` / `Esc`.
+- **Stack Trace beats.** Mid-run "memory fragment" pop-ups (`STACK_TRACE_LINES`) deliver story breadcrumbs as a dedicated `GameState.STACK_TRACE` overlay.
+- **Naming & flavour unification.** OS metaphors propagated end-to-end (`process_id`, `ram`, `cpu_cycles`, `sector`, `cache`, `crash_cause`).
+
+### Added — Phase 8: Enemy Variety, Recognition & Adaptive Music
+
+- **Roster expansion.** New `entities/malware_registry.py` (`SPECIES`, `maybe_get`) with archetypes `patroller`, `bomber`, `summoner`, `sniper`, `tank`, `swarm`. New mobs `Phisher`, `Worm`, `Daemon-Imp`, `Kernel-Trace`, plus elite variants flagged in the Bestiary.
+- **Affix system.** `Malware` instances roll one of: `armoured`, `swift`, `vampiric`, `volatile`, `corrupted`. Affixes mutate stats, drop tables, and damage interactions. Procedural rolls are deterministic per seed.
+- **Damage types & resistances.** New `entities/damage.py::DamageType` (`PHYSICAL`, `ENERGY`, `LOGIC`). Programs/daemons advertise a damage type; enemies have per-type resistance multipliers. Hit-feedback console messages call out resists/weaknesses.
+- **Scout / "Recognition" mechanic.** Inspect mode (`X`) lets the player target a tile and reveal stats + lore + recommended counter; locked species require N kills in `intel` table before details unlock. New `IntelRepository`.
+- **Bestiary.** New `GameState.BESTIARY` page lists every species seen this run/lifetime with kill count, weakness/resist colour bars, and lore blurb.
+- **Damage analytics.** `CombatLogRepository` records per-(program, species) hit/kill counts; surfaced in the post-run summary as a top-3 "what worked" panel.
+- **Adaptive music engine.** New `ui/music.py::StemMixer` blends four stems (`bed`, `tension`, `combat`, `boss`) by tracking enemy proximity, recent damage, and boss state. Crossfades smoothly via `SoundManager.apply_stem_volumes`.
+
+### Added — Phase 9: Boss Spectacle & Pantheon
+
+- **Boss framework.** Common base in `entities/malware.py` for HP-gated phase scripts, telegraphed attacks, arena spawners, and Daemon drops. Six bosses now ship: `KernelPanic`, `SegFault`, `BufferOverflow`, `RootkitHydra`, `DeadlockTwin`, `TheLeak`.
+- **`BufferOverflow`** — periodically floods the arena with stack-frame walls; HP-phase 2 collapses the arena from the edges inward.
+- **`RootkitHydra`** — splits into smaller copies on phase transition; killing one without the others heals the rest.
+- **`DeadlockTwin`** — two linked bosses that share damage; defeating one paralyses the other for two turns.
+- **`TheLeak`** — final boss that drains player RAM each turn until a "memory fragment" tile is reached. Dedicated boss arena with corruption tiles.
+- **Boss arenas.** `world/generator.py` recognises `kind=boss` and produces purpose-built rooms with locked exits and themed tile palettes.
+- **Pantheon progression.** `MetaRepository` tracks first-kill timestamps per boss; ending unlocks gated on full clears.
+
+### Added — Phase 10: Interactive Tutorial Range ("/dev/sandbox")
+
+- **The Range.** New `world/tutorial_range.py` builds a sandbox arena (`RangeArena`, `build_range_world`, `load_range_arena`) with no fail state.
+- **Curriculum.** 8-lesson `CURRICULUM` covering movement, attack, cache use, programs, daemons, patches, boss telegraphs, recognition. `LessonProgress` checks fire from the gameplay handler.
+- **The Polygon (free-play sandbox).** Press `` ` `` (or `Tab`) to open a kind-switching overlay (enemy / item / program / daemon / patch). Spawn anything on demand with `F1` god mode, `F2` infinite cycles, `F3` full FOV.
+- **Hint system.** `ui/explain.py::explain` provides contextual one-liners surfaced inside the range and the Bestiary.
+- **Tests.** Lesson tracking, polygon spawning, and arena loading covered.
+
+### Added — Phase 11: Distros & Structured Runs
+
+- **Run structure.** New `core/run_progress.py::RunProgress` defines a run as **8 Releases × 3 Milestones (NORMAL → BOSS → BOSS) × N Sectors**, each with a score target. Reaching the exit always **clears** a milestone; hitting the score target awards a `target_hit` bonus (+5 bits, doubled if `double_bits_pending`). Milestone bookkeeping persisted via `MilestoneRepository` and migration `008_phase11_distros`.
+- **Distros (six "decks").** New `data/distros_catalog.py` with `vanilla`, `minimal`, `hardened`, `realtime`, `bleeding_edge`, `recovery`. Each distro adjusts starting RAM/cycles, starter programs, and run-wide modifiers. Unlock chain: clearing a distro unlocks the next. Backed by `DistroRepository`.
+- **Distro select screen.** New `GameState.DISTRO_SELECT` shown before every fresh run; renders bonus stats, signature, and unlock hint.
+- **Vendor.** New `GameState.VENDOR` between milestones — buy programs / daemons / patches with `bits` currency. Stock rolled from per-distro tables; `free_vendor` skip tag waives all costs once.
+- **Skip tags.** New `entities/skip_tag.py` (`CATALOG`) — random debuffs offered at run start in exchange for bonus rewards (`double_bits`, `extra_daemon_slot`, `bonus_score`, `free_vendor`). Persisted via `SkipTagRepository`.
+- **Milestone result screen.** New `GameState.MILESTONE_RESULT` summarising kills, bits earned, target_hit bonus.
+- **Run summary.** New `GameState.RUN_SUMMARY` rolls up the full release: distros cleared, total bits, top combat-log entries, daemons surfaced.
+- **Soft milestone gate.** Reaching the exit always clears the milestone; missing the score target only forfeits the bonus instead of ending the run.
+
+### Added — Internationalisation (English / Turkish)
+
+- **i18n module.** New `ui/i18n.py` with `t(key, **kwargs)`, `set_language`, `cycle_language`, and full `_EN` / `_TR` dictionaries (~150 keys covering menu, settings, vendor, milestone, summary, distros).
+- **Per-distro translations.** Six distros × four fields (name / desc / signature / unlock hint) routed through `engine._distro_rows()` with catalog fallback.
+- **Menu options.** `_MENU_OPTIONS` switched to stable keys (`new_run`, `daily_run`, `training`, `howtoplay`, `codex`, `high_scores`, `daily_board`, `stats`, `shop`, `settings`, `quit`); render path translates per frame so the language toggle takes effect immediately.
+- **Settings toggle.** Language row in Settings cycles `EN ↔ TR`; persisted via `MetaRepository`.
+
+### Added — Interactive Main Menu
+
+- **Animated character avatar.** Pixel `init(0)` sprite slides between menu rows with a critically damped lerp; idle bob driven by `sin(_menu_phase)`. Halo glow + neon arrow point at the active option.
+- **Cyber-grid backdrop.** Slow-scrolling translucent grid behind the menu.
+- **Highlight bar.** Active row gets a translucent neon-cyan bar + underline, pulsing title with green offset glow.
+- **Translated footer hint.** `t("menu.hint")` — `[↑/↓] navigate  [ENTER] select  [ESC] quit`.
+
+### Added — Architecture: State Pattern Refactor
+
+- **`core/states/` package.** New base class `GameStateHandler` (`enter` / `exit` / `handle_event` / `update` / `render` hooks) and per-state subclasses split across `menu_states.py`, `playing_states.py`, `shop_state.py`, `tutorial_state.py`, `cinematic_states.py`, `game_over_state.py`. Registry built by `core/states/registry.py::build_state_registry()`.
+- **`GameEngine` slimmed.** The 160-line `if/elif` chain in `_render` and the matching dispatch in `_handle_events` collapse to `handler.render(self, ui)` / `handler.handle_event(self, event)`. Engine retains global hotkeys (`F11`, `M`) and is the single owner of game data.
+- **Public helpers exposed for handlers.** `GameEngine.start_new_run`, `reset_to_menu`, `compute_bonus`.
+- **55 new state-pattern unit tests** (`tests/core/test_states.py`) asserting registry coverage, mapping, default no-op contract, delegation, and render targets. Total suite: **297 passing**.
+
+### Added — Documentation
+
+- `docs/PRD_AND_ARCH.md` §4 updated with the State Pattern delegation rule and new §A.1.
+- `CLAUDE.md` updated to list `core/states/` in the architecture diagram and module-boundary section.
+- `AGENTS.md` updated to require tests for new logic in `core/states/`.
+
+### Changed
+
+- **`GameEngine`** registers a `_state_handlers` registry on init; `_active_state` property dispatches per-frame work. All previous private helpers (`_handle_*_key`, `_render_inspect_overlay`, etc.) preserved for backward compatibility and used by handlers.
+- **Boss-down ending.** Killing `KernelPanic` mid-run no longer hijacks structured runs. The cinematic ending fires via `_finish_run(success=True)` once `RunProgress` reports completion.
+- **Vendor flow.** Unconditional vendor entry between milestones (when the run is incomplete) — removes a dead branch that previously skipped vendor after boss + SECTOR_A combos.
+- **Milestone result wording.** Replaced cleared/failed labels with `target_hit` / `target_missed` semantics in both languages so the soft gate reads correctly.
+- **Music director.** Crossfades wired through `StemMixer.step(dt)` and `SoundManager.apply_stem_volumes`.
+
+### Fixed
+
+- Boss kill on `KernelPanic` no longer triggers the cinematic ending in mid-run structured runs (`_start_ending()` now guarded by `self._run_progress is None`).
+- Soft milestone gate: reaching the exit always clears; missing the score target no longer triggers `_enter_game_over`.
+- Distro descriptions in the picker now actually translate when the language toggle changes (previously hardcoded English).
+- `t("milestone.target_hit")` / `t("milestone.target_missed")` strings present in EN and TR (no more raw key bleed-through on the milestone result screen).
+
+### Tests
+
+- **+55 unit tests** for the State Pattern (`tests/core/test_states.py`).
+- Phase 7–11 work shipped with: `test_phase4_repositories.py` (already), `test_phase5_*` (5 files), `test_phase6.py`, `test_phase11_repositories.py`, plus targeted updates in `test_smoke.py`, `test_world.py`.
+- Full suite: **297 passing** (was 242 at v2.0.0).
+
+### Quality Gate
+
+- `ruff check .` ✓
+- `black --check .` ✓
+- `mypy --strict src` ✓ (66 source files, no issues)
+- `pytest` ✓ (297 passed)
+
+---
+
 ## [2.0.0] — 2026-05-05
 
 > **The "Juice + Onboarding" release.** Phases 5 and 6 land together: stacking modifiers (Programs, Daemons, Patch Notes), combo scoring, a second boss, daily seeds, a guided tutorial, themes, and a full accessibility/display options pass.
