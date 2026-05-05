@@ -411,44 +411,44 @@ Existing: `KernelPanic`, `SegFault`. Add at least 4 more:
 
 ---
 
-## Phase 10 — Interactive Tutorial Range: "/dev/sandbox" 🎯
+## Phase 10 — Interactive Tutorial Range: "/dev/sandbox" 🎯 ✅
 
 **Goal:** Replace the text-only tutorial with a hands-on training facility where the player is *taught* every system, then *let loose* to experiment without consequences.
 
 ### 10.1 The Range
-- [ ] New game state `TUTORIAL_RANGE` with its own scene; reachable from main menu (`Training`) and auto-opened on first launch (replaces Phase 6.1 first-boot tutorial).
-- [ ] Pre-authored arena `data/tutorial/range.json`: clearly zoned rooms (Movement Bay, Combat Pit, Item Lab, Program Foundry, Daemon Lounge, Boss Simulator).
-- [ ] No death, no run timer, no score; closing returns to menu with no DB writes.
+- [x] New game state `TUTORIAL_RANGE` with its own scene; reachable from main menu (`Training`) and auto-opened on first launch (replaces Phase 6.1 first-boot tutorial).
+- [x] Pre-authored arena `data/tutorial/range.json`: clearly zoned rooms (Movement Bay, Combat Pit, Item Lab, Program Foundry, Daemon Lounge, Boss Simulator).
+- [x] No death, no run timer, no score; closing returns to menu with no DB writes.
 
 ### 10.2 Guided lessons (curriculum)
 Each lesson is a short scripted scene with goals that auto-complete when the player demonstrates the skill:
-- [ ] **L1 Boot** — movement, FoV, console log.
-- [ ] **L2 Combat** — bump-attack, damage numbers, RAM bar.
-- [ ] **L3 Items** — pickup, cache, `use_item`.
-- [ ] **L4 Programs** — slot bar, hotkeys, cooldowns; one lesson per Program type.
-- [ ] **L5 Daemons** — equip slots, synergy tags, swap during combat.
-- [ ] **L6 Patches** — pick a Patch, see HUD chip, observe stat change.
-- [ ] **L7 Recognition** — Inspect mode, Bestiary, weakness exploitation (Phase 8).
-- [ ] **L8 Boss Drill** — fight a "training dummy" boss with 1 HP per phase to see the script.
-- [ ] Lessons can be replayed individually from a Curriculum menu.
+- [x] **L1 Boot** — movement, FoV, console log.
+- [x] **L2 Combat** — bump-attack, damage numbers, RAM bar.
+- [x] **L3 Items** — pickup, cache, `use_item`.
+- [x] **L4 Programs** — slot bar, hotkeys, cooldowns; one lesson per Program type.
+- [x] **L5 Daemons** — equip slots, synergy tags, swap during combat.
+- [x] **L6 Patches** — pick a Patch, see HUD chip, observe stat change.
+- [x] **L7 Recognition** — Inspect mode, Bestiary, weakness exploitation (Phase 8).
+- [x] **L8 Boss Drill** — fight a "training dummy" boss with 1 HP per phase to see the script.
+- [x] Lessons can be replayed individually from a Curriculum menu.
 
 ### 10.3 The Polygon (free-play sandbox)
-- [ ] After lessons (or skippable from the menu), the player drops into the Range with a debug toolbar:
+- [x] After lessons (or skippable from the menu), the player drops into the Range with a debug toolbar:
   - Spawn any enemy / affix / boss at cursor.
   - Grant any Item / Program / Daemon / Patch.
   - Set RAM, cycles, depth.
   - Toggle FoV, god mode, infinite cycles.
-- [ ] Toolbar is a transparent overlay (`~` key) with searchable lists.
-- [ ] Range state never touches `runs`, `scores`, or `bits`.
+- [x] Toolbar is a transparent overlay (`~` key) with searchable lists.
+- [x] Range state never touches `runs`, `scores`, or `bits`.
 
 ### 10.4 Hint system
-- [ ] Every Program / Daemon / Item has an `explain()` string used both in the Range and as a tooltip elsewhere (single source of truth).
-- [ ] Lesson scripts call `explain()` so copy never drifts from runtime behavior.
-- [ ] "Show me" button next to each entry triggers a 3-second auto-played demo (scripted player actions).
+- [x] Every Program / Daemon / Item has an `explain()` string used both in the Range and as a tooltip elsewhere (single source of truth).
+- [x] Lesson scripts call `explain()` so copy never drifts from runtime behavior.
+- [x] "Show me" button next to each entry triggers a 3-second auto-played demo (scripted player actions).
 
 ### 10.5 Tests
-- [ ] Lesson completion conditions tested with scripted input streams.
-- [ ] Range smoke test: spawn one of every entity, confirm no crash, confirm DB is untouched.
+- [x] Lesson completion conditions tested with scripted input streams.
+- [x] Range smoke test: spawn one of every entity, confirm no crash, confirm DB is untouched.
 
 **Exit criteria:** A new player can finish the curriculum, then open the polygon and answer "what does daemon X do?" by trying it — without ever reading external docs or risking a real run.
 

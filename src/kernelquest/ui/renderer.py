@@ -755,6 +755,114 @@ class UIManager:
         hint = self.font_small.render("[enter] next   [esc] skip", True, theme.NEON_AMBER)
         self.screen.blit(hint, hint.get_rect(center=(cx, WINDOW_HEIGHT - 60)))
 
+    # ---------------- Phase 10 — Tutorial Range UI ----------------
+
+    def render_range_lesson_panel(
+        self,
+        lesson: object | None,
+        lesson_index: int,
+        total_lessons: int,
+        progress: object,
+        completed: bool,
+    ) -> None:
+        """Render the curriculum panel at the top of the Range scene."""
+        # ``lesson`` is a Lesson | None; ``progress`` a LessonProgress.
+        panel_w = 760
+        panel_h = 96
+        panel_x = (WINDOW_WIDTH - panel_w) // 2
+        panel_y = 8
+        bg = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
+        bg.fill((10, 14, 22, 220))
+        pygame.draw.rect(bg, theme.NEON_CYAN, bg.get_rect(), 2)
+        self.screen.blit(bg, (panel_x, panel_y))
+
+        if completed and lesson is None:
+            title = self.font_title.render(
+                "/dev/sandbox — CURRICULUM COMPLETE",
+                True,
+                theme.NEON_GREEN,
+            )
+            self.screen.blit(title, title.get_rect(center=(WINDOW_WIDTH // 2, panel_y + 30)))
+            sub = self.font_small.render(
+                "[~] Polygon free-play   [Esc] return to menu",
+                True,
+                theme.TEXT_DIM,
+            )
+            self.screen.blit(sub, sub.get_rect(center=(WINDOW_WIDTH // 2, panel_y + 64)))
+            return
+        if lesson is None:
+            return
+
+        # Type-narrow at runtime to avoid a hard import cycle.
+        title_text = getattr(lesson, "title", "Lesson")
+        body_text = getattr(lesson, "body", "")
+        hint_text = getattr(lesson, "hint", "")
+        goal_field = getattr(lesson, "goal_field", "")
+        goal_target = int(getattr(lesson, "goal_target", 1))
+        if goal_field == "programs_fired":
+            current = sum(getattr(progress, "programs_fired", {}).values())
+        else:
+            current = int(getattr(progress, goal_field, 0))
+
+        head = self.font_title.render(title_text, True, theme.NEON_CYAN)
+        self.screen.blit(head, (panel_x + 12, panel_y + 6))
+        idx = self.font_small.render(f"{lesson_index + 1}/{total_lessons}", True, theme.TEXT_DIM)
+        self.screen.blit(idx, (panel_x + panel_w - idx.get_width() - 12, panel_y + 12))
+        body = self.font_small.render(body_text, True, theme.TEXT_PRIMARY)
+        self.screen.blit(body, (panel_x + 12, panel_y + 36))
+        hint = self.font_small.render(
+            f">> {hint_text}  ({min(current, goal_target)}/{goal_target})",
+            True,
+            theme.NEON_AMBER,
+        )
+        self.screen.blit(hint, (panel_x + 12, panel_y + 66))
+
+    def render_polygon_overlay(
+        self,
+        kind: str,
+        items: list[tuple[str, str]],
+        selected: int,
+        *,
+        god_mode: bool,
+        infinite_cycles: bool,
+        full_fov: bool,
+    ) -> None:
+        """Render the free-play sandbox toolbar (the Polygon)."""
+        overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 180))
+        self.screen.blit(overlay, (0, 0))
+
+        cx = WINDOW_WIDTH // 2
+        title = self.font_title.render(f"POLYGON — {kind.upper()}", True, theme.NEON_MAGENTA)
+        self.screen.blit(title, title.get_rect(center=(cx, 80)))
+
+        flags_line = (
+            f"[F1] god={god_mode}   [F2] inf_cycles={infinite_cycles}   "
+            f"[F3] full_fov={full_fov}"
+        )
+        flags_surf = self.font_small.render(flags_line, True, theme.TEXT_DIM)
+        self.screen.blit(flags_surf, flags_surf.get_rect(center=(cx, 110)))
+
+        kinds_hint = self.font_small.render(
+            "[A/D] kind   [W/S] select   [Enter] spawn/grant   [~/Esc] close",
+            True,
+            theme.TEXT_DIM,
+        )
+        self.screen.blit(kinds_hint, kinds_hint.get_rect(center=(cx, 132)))
+
+        list_x = 120
+        list_y = 170
+        max_rows = 16
+        start = max(0, min(selected - max_rows // 2, len(items) - max_rows))
+        for i, (label, desc) in enumerate(items[start : start + max_rows]):
+            real_idx = start + i
+            color = theme.NEON_AMBER if real_idx == selected else theme.TEXT_PRIMARY
+            line = f"{'> ' if real_idx == selected else '  '}{label}  —  {desc}"
+            surf = self.font_small.render(line[:130], True, color)
+            self.screen.blit(surf, (list_x, list_y + i * 22))
+
+    # ----------------------------------------------------------------
+
     def render_howtoplay(self, lines: list[str], scroll: int) -> None:
         self.clear()
         cx = WINDOW_WIDTH // 2

@@ -63,6 +63,7 @@ from kernelquest.entities.daemon import (
     starter_daemon,
 )
 from kernelquest.entities.damage import DamageType
+from kernelquest.entities.items import ALL_ITEM_IDS, get_item
 from kernelquest.entities.malware import (
     BufferOverflowBoss,
     DeadlockTwin,
@@ -105,16 +106,26 @@ from kernelquest.ui.viewport import Viewport
 from kernelquest.world.daily import today_iso, today_seed
 from kernelquest.world.generator import generate_world
 from kernelquest.world.tile import TileType
+from kernelquest.world.tutorial_range import (
+    CURRICULUM,
+    Lesson,
+    LessonProgress,
+    RangeArena,
+    build_range_world,
+    load_range_arena,
+)
 from kernelquest.world.world import World
 
 log = logging.getLogger(__name__)
 
 _KEY_BITS = "meta.bits"
 
+_POLYGON_KINDS: tuple[str, ...] = ("enemy", "item", "program", "daemon", "patch")
+
 _MENU_OPTIONS: tuple[str, ...] = (
     "New Run",
     "Daily Run",
-    "Tutorial",
+    "Training",
     "How to Play",
     "Codex",
     "High Scores",
@@ -195,6 +206,17 @@ class GameEngine:
         self._howtoplay_scroll: int = 0
         self._tutorial_step: int = 0
         self._is_tutorial_run: bool = False
+        # Phase 10 — Interactive Tutorial Range.
+        self._range_arena: RangeArena | None = None
+        self._lesson_progress: LessonProgress = LessonProgress()
+        self._lesson_index: int = 0
+        self._range_completed: bool = False
+        self._polygon_open: bool = False
+        self._polygon_kind_index: int = 0
+        self._polygon_item_index: int = 0
+        self._range_god_mode: bool = False
+        self._range_infinite_cycles: bool = False
+        self._range_full_fov: bool = False
         # Phase 7 — narrative state.
         self._cinematic: CinematicPlayer | None = None
         self._cinematic_kind: str = ""  # "intro" | "ending"
@@ -346,6 +368,8 @@ class GameEngine:
                 self._handle_bestiary_key(event)
             elif self._state is GameState.INSPECT:
                 self._handle_inspect_key(event)
+            elif self._state is GameState.TUTORIAL_RANGE:
+                self._handle_range_key(event)
 
     def _apply_display_mode(self) -> None:
         flags = pygame.FULLSCREEN if self._settings.fullscreen else 0
@@ -373,8 +397,8 @@ class GameEngine:
             self._start_new_run(daily=False)
         elif choice == "Daily Run":
             self._start_new_run(daily=True)
-        elif choice == "Tutorial":
-            self._start_tutorial()
+        elif choice == "Training":
+            self._start_tutorial_range()
         elif choice == "How to Play":
             self._open_howtoplay()
         elif choice == "Codex":
@@ -526,6 +550,7 @@ class GameEngine:
             result = execute_program(world, program_slot, self._rng)
             self._console.info(result.message)
             if result.success:
+                self._track_lesson("programs_fired", key=result.program_key or "")
                 if result.program_key and result.target_species:
                     self._record_combat(
                         program_key=result.program_key,
@@ -700,6 +725,41 @@ class GameEngine:
             )
             ui.render_console(self._console)
             self._render_inspect_overlay(ui)
+        elif self._state is GameState.TUTORIAL_RANGE and self._world is not None:
+            ui.clear()
+            ui.render_world(
+                self._world,
+                self._viewport,
+                shake=self._shake,
+                particles=self._particles,
+            )
+            ui.render_floating_text(self._floats, self._viewport)
+            ui.render_hud(
+                self._world.player,
+                sector=0,
+                world=self._world,
+                patches=[p.label for p in self._patches.selected],
+            )
+            ui.render_console(self._console)
+            current = self._current_lesson()
+            ui.render_range_lesson_panel(
+                lesson=current,
+                lesson_index=self._lesson_index,
+                total_lessons=len(CURRICULUM),
+                progress=self._lesson_progress,
+                completed=self._range_completed,
+            )
+            if self._polygon_open:
+                ui.render_polygon_overlay(
+                    kind=_POLYGON_KINDS[self._polygon_kind_index],
+                    items=self._polygon_current_entries(),
+                    selected=self._polygon_item_index,
+                    god_mode=self._range_god_mode,
+                    infinite_cycles=self._range_infinite_cycles,
+                    full_fov=self._range_full_fov,
+                )
+            if self._settings.crt_effect:
+                ui.render_scanlines()
         ui.present()
 
     # ----- transitions -----
@@ -850,6 +910,8 @@ class GameEngine:
         assert self._world is not None
         player = self._world.player
         self._shake.punch(SCREEN_SHAKE_KILL_INTENSITY)
+        # Phase 10 — curriculum tracking.
+        self._track_lesson("enemies_killed")
         # Phase 8 \u2014 fire affix on-death side effects (Volatile blast etc.)
         for line in fire_death_effects(self._world, enemy):
             self._console.warn(line)
@@ -922,12 +984,15 @@ class GameEngine:
         player.score += SCORE_PER_MOVE
         self._play_sfx("move")
         self._world.recompute_fov()
+        # Phase 10 — curriculum tracking.
+        self._track_lesson("moved_steps")
 
         message = pickup_item_at(self._world, player.position)
         if message is not None:
             patch_effects = self._patches.effects()
             self._console.info(message)
             self._play_sfx("pickup")
+            self._track_lesson("items_collected")
             if self._first_pickup_pending:
                 self._first_pickup_pending = False
                 self._unlock_lore_for("first_pickup")
@@ -1127,6 +1192,8 @@ class GameEngine:
         if self._sfx is not None and phase.music_overlay:
             # Re-trigger the boss track to "swap into" the overlay layer.
             self._sfx.start_music(self._boss_music_track(enemy))
+        # Phase 10 — curriculum tracking.
+        self._track_lesson("boss_phases_seen")
 
     def _refresh_boss_state(self) -> None:
         if self._world is None:
@@ -1380,6 +1447,296 @@ class GameEngine:
             self._sfx.start_music("main")
         self._state = GameState.MENU
 
+    # ----- Phase 10: Tutorial Range -----
+
+    def _start_tutorial_range(self) -> None:
+        """Boot the Range scene with curriculum + free-play sandbox."""
+        from kernelquest.entities.malware import KernelPanic, SyntaxError_
+        from kernelquest.entities.player import Player
+
+        arena = load_range_arena()
+        self._range_arena = arena
+
+        # Fresh player with full toolkit so all lessons are reachable.
+        player = Player(position=arena.spawn, max_ram=80, ram=80)
+        player.programs = starter_loadout()
+        # Start with one of every daemon, equip cron + tcpdump.
+        player.daemons = [DAEMON_CATALOG[0], DAEMON_CATALOG[3]]
+        player.cache = ["gc", "opt", "scan"][: player.cache_capacity]
+
+        world = build_range_world(player, arena)
+
+        # Drop a soft enemy in the Combat Pit.
+        combat_room = next(r for r in arena.rooms if r.key == "combat")
+        enemy = SyntaxError_(position=(combat_room.x + 2, combat_room.y + 2))
+        enemy.hp = max(1, enemy.hp // 4)
+        world.enemies.append(enemy)
+
+        # Drop a training dummy boss in the Boss Simulator with low HP per phase.
+        boss_room = next(r for r in arena.rooms if r.key == "boss")
+        boss = KernelPanic(position=(boss_room.x + 2, boss_room.y + 2))
+        boss.max_hp = 6
+        boss.hp = 6
+        boss.damage = 2
+        world.enemies.append(boss)
+
+        # Sprinkle one of each item type across the Item Lab floor.
+        item_room = next(r for r in arena.rooms if r.key == "items")
+        item_positions = [
+            (item_room.x + 1, item_room.y + 1),
+            (item_room.x + 3, item_room.y + 1),
+            (item_room.x + 1, item_room.y + 3),
+        ]
+        for pos, item_id in zip(item_positions, ALL_ITEM_IDS, strict=False):
+            world.items[pos] = item_id
+
+        self._world = world
+        self._viewport = self._make_viewport(world)
+        self._is_tutorial_run = True
+        self._range_completed = False
+        self._lesson_progress.reset()
+        self._lesson_index = 0
+        self._polygon_open = False
+        self._polygon_kind_index = 0
+        self._polygon_item_index = 0
+        self._range_god_mode = False
+        self._range_infinite_cycles = False
+        self._range_full_fov = False
+        self._patches = PatchState()
+        self._patch_choices = []
+        self._console.clear()
+        self._console.kernel("/dev/sandbox loaded — no DB writes will be made.")
+        self._console.info("L1 — take 5 steps to begin.")
+        if self._sfx is not None:
+            self._sfx.start_music("tutorial")
+        self._refresh_boss_state()  # arms the dummy boss banner if needed.
+        world.recompute_fov()
+        self._state = GameState.TUTORIAL_RANGE
+
+    def _close_tutorial_range(self) -> None:
+        """Tear down the Range and return to the main menu without persisting."""
+        if self._meta is not None:
+            settings_module.mark_tutorial_done(self._meta)
+        self._world = None
+        self._range_arena = None
+        self._is_tutorial_run = False
+        self._polygon_open = False
+        if self._sfx is not None:
+            self._sfx.start_music("main")
+        self._state = GameState.MENU
+
+    def _current_lesson(self) -> Lesson | None:
+        if self._lesson_index >= len(CURRICULUM):
+            return None
+        return CURRICULUM[self._lesson_index]
+
+    def _check_lesson_completion(self) -> None:
+        """Advance the curriculum index when the current lesson's goal is met."""
+        lesson = self._current_lesson()
+        if lesson is None:
+            return
+        if lesson.is_complete(self._lesson_progress):
+            self._console.kernel(f"{lesson.title} complete!", LogLevel.CRIT)
+            self._lesson_index += 1
+            nxt = self._current_lesson()
+            if nxt is not None:
+                self._console.info(f"{nxt.title} — {nxt.hint}")
+            else:
+                self._range_completed = True
+                self._console.kernel(
+                    "Curriculum complete. [~] opens the Polygon. [Esc] returns to menu."
+                )
+                if self._meta is not None:
+                    settings_module.mark_tutorial_done(self._meta)
+
+    def _track_lesson(self, field: str, *, amount: int = 1, key: str = "") -> None:
+        """Bump a :class:`LessonProgress` counter (no-op outside Range)."""
+        if self._state is not GameState.TUTORIAL_RANGE:
+            return
+        if field == "programs_fired":
+            tally = self._lesson_progress.programs_fired
+            tally[key] = tally.get(key, 0) + amount
+        else:
+            current = int(getattr(self._lesson_progress, field, 0))
+            setattr(self._lesson_progress, field, current + amount)
+        self._check_lesson_completion()
+
+    def _handle_range_key(self, event: pygame.event.Event) -> None:
+        """Key handler for ``GameState.TUTORIAL_RANGE``."""
+        if self._polygon_open:
+            self._handle_polygon_key(event)
+            return
+
+        if event.key == pygame.K_ESCAPE:
+            self._close_tutorial_range()
+            return
+        if event.key in (pygame.K_BACKQUOTE, pygame.K_TAB):
+            self._polygon_open = True
+            self._console.info("[Polygon] kind: " + _POLYGON_KINDS[self._polygon_kind_index])
+            return
+        if event.key == pygame.K_t:
+            # Daemon swap drill (cycles equipped daemons through the catalog).
+            assert self._world is not None
+            equipped = self._world.player.daemons
+            cat = list(DAEMON_CATALOG)
+            if equipped:
+                idx = cat.index(equipped[0]) if equipped[0] in cat else 0
+                equipped[0] = cat[(idx + 1) % len(cat)]
+            else:
+                equipped.append(cat[0])
+            self._console.info(f"swapped daemon -> {equipped[0].label}")
+            self._track_lesson("daemons_swapped")
+            return
+        if event.key == pygame.K_p:
+            # Patch drill — pick the first patch in the catalog (idempotent).
+            patch = PATCH_CATALOG[0]
+            if patch not in self._patches.selected:
+                self._patches.add(patch)
+                self._console.info(f"patch acquired -> {patch.label}")
+                self._track_lesson("patches_picked")
+            return
+        if event.key == pygame.K_F1:
+            self._range_god_mode = not self._range_god_mode
+            assert self._world is not None
+            if self._range_god_mode:
+                self._world.player.max_ram = 9999
+                self._world.player.ram = 9999
+            self._console.info(f"god_mode={self._range_god_mode}")
+            return
+        if event.key == pygame.K_F2:
+            self._range_infinite_cycles = not self._range_infinite_cycles
+            self._console.info(f"infinite_cycles={self._range_infinite_cycles}")
+            return
+        if event.key == pygame.K_F3:
+            self._range_full_fov = not self._range_full_fov
+            assert self._world is not None
+            if self._range_full_fov:
+                w, h = self._world.grid.width, self._world.grid.height
+                self._world.visible = {(x, y) for x in range(w) for y in range(h)}
+                self._world.explored |= self._world.visible
+            self._console.info(f"full_fov={self._range_full_fov}")
+            return
+
+        # Delegate to the regular gameplay handler for movement / programs / cache.
+        self._handle_playing_key(event)
+        # Keep range cycles topped up if the toggle is on.
+        if self._range_infinite_cycles and self._world is not None:
+            self._world.player.cpu_cycles = self._world.player.max_cpu_cycles
+
+    # ----- Polygon (free-play sandbox) -----
+
+    def _polygon_current_entries(self) -> list[tuple[str, str]]:
+        """Return ``[(label, explain)]`` rows for the active Polygon kind."""
+        from kernelquest.entities.daemon import CATALOG as DC
+        from kernelquest.entities.items import ALL_ITEM_IDS as AI
+        from kernelquest.entities.malware_registry import SPECIES as MC
+        from kernelquest.entities.patch import CATALOG as PC
+        from kernelquest.entities.program import CATALOG as PRC
+        from kernelquest.ui.explain import explain as _explain
+
+        kind = _POLYGON_KINDS[self._polygon_kind_index]
+        rows: list[tuple[str, str]] = []
+        if kind == "enemy":
+            rows = [(s.label, s.lore_blurb or s.archetype.value) for s in MC]
+        elif kind == "item":
+            rows = [(get_item(k).label, _explain("item", k)) for k in AI]
+        elif kind == "program":
+            rows = [(p.label, p.description) for p in PRC]
+        elif kind == "daemon":
+            rows = [(d.label, d.description) for d in DC]
+        elif kind == "patch":
+            rows = [(p.label, p.description) for p in PC]
+        return rows
+
+    def _handle_polygon_key(self, event: pygame.event.Event) -> None:
+        if event.key in (pygame.K_BACKQUOTE, pygame.K_ESCAPE):
+            self._polygon_open = False
+            return
+        rows = self._polygon_current_entries()
+        if event.key in (pygame.K_LEFT, pygame.K_a):
+            self._polygon_kind_index = (self._polygon_kind_index - 1) % len(_POLYGON_KINDS)
+            self._polygon_item_index = 0
+        elif event.key in (pygame.K_RIGHT, pygame.K_d):
+            self._polygon_kind_index = (self._polygon_kind_index + 1) % len(_POLYGON_KINDS)
+            self._polygon_item_index = 0
+        elif event.key in (pygame.K_UP, pygame.K_w):
+            if rows:
+                self._polygon_item_index = (self._polygon_item_index - 1) % len(rows)
+        elif event.key in (pygame.K_DOWN, pygame.K_s):
+            if rows:
+                self._polygon_item_index = (self._polygon_item_index + 1) % len(rows)
+        elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
+            self._polygon_apply_selection()
+
+    def _polygon_apply_selection(self) -> None:
+        """Spawn / grant the currently selected polygon entry."""
+        from kernelquest.entities.daemon import CATALOG as DC
+        from kernelquest.entities.items import ALL_ITEM_IDS as AI
+        from kernelquest.entities.malware_registry import SPECIES as MC
+        from kernelquest.entities.malware_registry import factory_for
+        from kernelquest.entities.patch import CATALOG as PC
+        from kernelquest.entities.program import CATALOG as PRC
+        from kernelquest.entities.program import ProgramSlot
+
+        if self._world is None:
+            return
+        kind = _POLYGON_KINDS[self._polygon_kind_index]
+        idx = self._polygon_item_index
+        player = self._world.player
+        if kind == "enemy" and idx < len(MC):
+            sp = MC[idx]
+            spawn_pos = self._polygon_spawn_position()
+            if spawn_pos is None:
+                self._console.warn("no free tile to spawn enemy")
+                return
+            factory = factory_for(sp.key)
+            if factory is None:
+                self._console.warn(f"no factory for {sp.key}")
+                return
+            self._world.enemies.append(factory(spawn_pos))
+            self._console.info(f"spawned {sp.label} at {spawn_pos}")
+        elif kind == "item" and idx < len(AI):
+            spawn_pos = self._polygon_spawn_position()
+            if spawn_pos is None:
+                self._console.warn("no free tile to drop item")
+                return
+            self._world.items[spawn_pos] = AI[idx]
+            self._console.info(f"dropped {AI[idx]} at {spawn_pos}")
+        elif kind == "program" and idx < len(PRC):
+            prog = PRC[idx]
+            player.programs.append(ProgramSlot(program=prog, charges=prog.max_charges))
+            self._console.info(f"granted program {prog.label}")
+        elif kind == "daemon" and idx < len(DC):
+            d = DC[idx]
+            if d not in player.daemons:
+                player.daemons.append(d)
+                self._console.info(f"granted daemon {d.label}")
+        elif kind == "patch" and idx < len(PC):
+            p = PC[idx]
+            if p not in self._patches.selected:
+                self._patches.add(p)
+                self._console.info(f"granted patch {p.label}")
+
+    def _polygon_spawn_position(self) -> tuple[int, int] | None:
+        """Find a walkable empty tile near the player to drop a polygon spawn."""
+        if self._world is None:
+            return None
+        px, py = self._world.player.position
+        for radius in range(1, 4):
+            for dx in range(-radius, radius + 1):
+                for dy in range(-radius, radius + 1):
+                    pos = (px + dx, py + dy)
+                    if pos == self._world.player.position:
+                        continue
+                    if not self._world.grid.is_walkable(*pos):
+                        continue
+                    if self._world.enemy_at(pos) is not None:
+                        continue
+                    if pos in self._world.items:
+                        continue
+                    return pos
+        return None
+
     def _open_howtoplay(self) -> None:
         if not self._howtoplay_lines:
             self._howtoplay_lines = self._load_howtoplay_lines()
@@ -1591,6 +1948,7 @@ class GameEngine:
             self._console.info("No visible processes to inspect.")
             return
         self._inspect_index = 0
+        self._track_lesson("inspect_opened")
         self._state = GameState.INSPECT
 
     def _inspectable_enemies(self) -> list[Malware]:

@@ -27,4 +27,6 @@ class GameState(Enum):
     # Phase 8 — recognition.
     BESTIARY = auto()
     INSPECT = auto()
+    # Phase 10 — interactive tutorial range.
+    TUTORIAL_RANGE = auto()
     QUIT = auto()

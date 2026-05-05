@@ -1,0 +1,13 @@
+{
+  "name": "/dev/sandbox",
+  "rooms": [
+    {"key": "movement", "label": "Movement Bay",      "x": 1,  "y": 1,  "w": 6,  "h": 5},
+    {"key": "combat",   "label": "Combat Pit",        "x": 8,  "y": 1,  "w": 6,  "h": 5},
+    {"key": "items",    "label": "Item Lab",          "x": 15, "y": 1,  "w": 6,  "h": 5},
+    {"key": "programs", "label": "Program Foundry",   "x": 1,  "y": 7,  "w": 6,  "h": 5},
+    {"key": "daemons",  "label": "Daemon Lounge",     "x": 8,  "y": 7,  "w": 6,  "h": 5},
+    {"key": "boss",     "label": "Boss Simulator",    "x": 15, "y": 7,  "w": 6,  "h": 5}
+  ],
+  "spawn": [3, 3],
+  "exit": [18, 9]
+}
