@@ -904,6 +904,162 @@ class UIManager:
 
     # ----- helpers -----
 
+    def render_bestiary(
+        self,
+        rows: list[tuple[str, str, int, int, int, str, str, str]],
+        selected: int,
+    ) -> None:
+        """Phase 8 — Bestiary screen.
+
+        Each row: ``(key, label, intel_level, kills, dmg, archetype, weakness, lore)``.
+        Higher intel tiers reveal more fields; tier 0 shows ``???``.
+        """
+        self.clear()
+        cx = WINDOW_WIDTH // 2
+        title = self.font_title.render("BESTIARY", True, theme.NEON_CYAN)
+        self.screen.blit(title, title.get_rect(center=(cx, 60)))
+
+        list_x = 80
+        list_top = 130
+        list_w = 360
+        for i, (_key, label, tier, _k, _d, _a, _w, _lore) in enumerate(rows):
+            is_sel = i == selected
+            if tier == 0:
+                color = theme.TEXT_DIM
+                text = "???  (lvl 0)"
+            else:
+                color = theme.NEON_CYAN if is_sel else theme.TEXT_PRIMARY
+                text = f"{label}  (lvl {tier})"
+            prefix = "▶ " if is_sel else "  "
+            self._blit_text(
+                f"{prefix}{text[:42]}", (list_x, list_top + i * 26), color, self.font_body
+            )
+
+        body_x = list_x + list_w + 32
+        body_w = WINDOW_WIDTH - body_x - 80
+        pane_rect = pygame.Rect(
+            body_x - 16, list_top - 16, body_w + 32, WINDOW_HEIGHT - list_top - 80
+        )
+        glass = pygame.Surface(pane_rect.size, pygame.SRCALPHA)
+        glass.fill((*theme.PANEL_BG, 200))
+        self.screen.blit(glass, pane_rect.topleft)
+        pygame.draw.rect(self.screen, theme.NEON_CYAN, pane_rect, width=1, border_radius=8)
+
+        if rows:
+            row = rows[selected]
+            _key, label, tier, kills, dmg, archetype, weakness, lore = row
+            y = pane_rect.y + 20
+            if tier == 0:
+                self._blit_text(
+                    "No intel yet — engage to reveal.",
+                    (body_x, y),
+                    theme.TEXT_DIM,
+                    self.font_body,
+                )
+            else:
+                self._blit_text(label, (body_x, y), theme.NEON_AMBER, self.font_title)
+                y += 38
+                self._blit_text(
+                    f"Archetype: {archetype}",
+                    (body_x, y),
+                    theme.TEXT_PRIMARY,
+                    self.font_body,
+                )
+                y += 26
+                self._blit_text(
+                    f"Kills: {kills}    Damage dealt: {dmg}",
+                    (body_x, y),
+                    theme.TEXT_PRIMARY,
+                    self.font_body,
+                )
+                y += 26
+                if tier >= 2:
+                    self._blit_text(
+                        f"Weakness: {weakness}",
+                        (body_x, y),
+                        theme.NEON_GREEN,
+                        self.font_body,
+                    )
+                    y += 26
+                if tier >= 3:
+                    self._blit_text(
+                        lore[: body_w // 8],
+                        (body_x, y),
+                        theme.TEXT_DIM,
+                        self.font_small,
+                    )
+
+        hint = self.font_small.render(
+            "[↑/↓] navigate    [esc] back",
+            True,
+            theme.TEXT_DIM,
+        )
+        self.screen.blit(hint, hint.get_rect(center=(cx, WINDOW_HEIGHT - 40)))
+
+    def render_inspect_overlay(
+        self,
+        screen_pos: tuple[int, int],
+        label: str,
+        tier: int,
+        kills: int,
+        damage_dealt: int,
+        weakness: str,
+        affixes: list[str],
+    ) -> None:
+        """Floating intel popover anchored at a tile (Inspect mode)."""
+        x, y = screen_pos
+        lines: list[tuple[str, tuple[int, int, int]]] = []
+        if tier == 0:
+            lines.append(("??? (no intel)", theme.TEXT_DIM))
+        else:
+            lines.append((f"{label} (lvl {tier})", theme.NEON_AMBER))
+            lines.append((f"kills: {kills}  dmg: {damage_dealt}", theme.TEXT_PRIMARY))
+            if tier >= 2:
+                lines.append((f"weak: {weakness}", theme.NEON_GREEN))
+            if affixes:
+                lines.append(("affix: " + ", ".join(affixes), theme.NEON_MAGENTA))
+        w = 240
+        h = 16 + 22 * len(lines)
+        rect = pygame.Rect(x, y, w, h)
+        rect.clamp_ip(self.screen.get_rect())
+        glass = pygame.Surface(rect.size, pygame.SRCALPHA)
+        glass.fill((*theme.PANEL_BG, 220))
+        self.screen.blit(glass, rect.topleft)
+        pygame.draw.rect(self.screen, theme.NEON_CYAN, rect, width=1, border_radius=6)
+        cy = rect.y + 8
+        for text, color in lines:
+            self._blit_text(text, (rect.x + 10, cy), color, self.font_small)
+            cy += 22
+
+    def render_post_run_summary(
+        self,
+        rows: list[tuple[str, str, int, int]],
+    ) -> None:
+        """Post-run combat summary overlay.
+
+        Each row: ``(program_label, species_label, damage, kills)``.
+        """
+        if not rows:
+            return
+        w = 480
+        h = 64 + 24 * len(rows)
+        x = WINDOW_WIDTH // 2 - w // 2
+        y = WINDOW_HEIGHT // 2 - h // 2
+        rect = pygame.Rect(x, y, w, h)
+        glass = pygame.Surface(rect.size, pygame.SRCALPHA)
+        glass.fill((*theme.PANEL_BG, 235))
+        self.screen.blit(glass, rect.topleft)
+        pygame.draw.rect(self.screen, theme.NEON_AMBER, rect, width=2, border_radius=8)
+        title = self.font_body.render("RUN SUMMARY", True, theme.NEON_AMBER)
+        self.screen.blit(title, title.get_rect(midtop=(rect.centerx, rect.y + 12)))
+        cy = rect.y + 48
+        for prog, species, dmg, kills in rows[:10]:
+            text = f"{prog:<10} → {species:<14} dmg {dmg:>4}  k {kills}"
+            self._blit_text(text, (rect.x + 16, cy), theme.TEXT_PRIMARY, self.font_small)
+            cy += 22
+
+    # ----- helpers -----
+
     def _blit_text(
         self,
         text: str,

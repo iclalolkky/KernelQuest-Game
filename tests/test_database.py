@@ -33,6 +33,7 @@ def test_migrations_are_idempotent(db: Database) -> None:
         "004_phase5_backfill",
         "005_phase5_meta",
         "006_phase7_lore",
+        "007_phase8_intel",
     ]
 
 

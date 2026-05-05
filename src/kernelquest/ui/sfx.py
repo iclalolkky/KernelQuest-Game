@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import math
 from array import array
@@ -253,3 +254,23 @@ class SoundManager:
             self._music_channel.stop()
             self._music_playing = False
             self._current_track = None
+
+    def apply_stem_volumes(self, volumes: dict[str, float]) -> None:
+        """Phase 8 — route StemMixer output to the music channel.
+
+        The minimal MVP scales overall music volume by the louder of the
+        non-bed stems so the existing single-track loop responds to the
+        adaptive director. Real per-stem mixing arrives once the assets in
+        ``docs/AUDIO_STEMS.md`` are authored.
+        """
+        if not self._enabled or self._music_channel is None or not self._music_playing:
+            return
+        peak = 0.0
+        for key, vol in volumes.items():
+            if key == "bed":
+                continue
+            if vol > peak:
+                peak = vol
+        target = min(1.0, 0.6 + 0.4 * peak)
+        with contextlib.suppress(pygame.error):  # pragma: no cover
+            self._music_channel.set_volume(self._music_volume * target)

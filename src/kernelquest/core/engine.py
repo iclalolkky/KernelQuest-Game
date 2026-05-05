@@ -43,8 +43,10 @@ from kernelquest.data.lore_catalog import (
     for_condition as lore_for_condition,
 )
 from kernelquest.data.repositories import (
+    CombatLogRepository,
     DaemonRepository,
     DailyRunRepository,
+    IntelRepository,
     LoreRepository,
     MetaRepository,
     RunRepository,
@@ -60,13 +62,15 @@ from kernelquest.entities.daemon import (
     get_daemon,
     starter_daemon,
 )
+from kernelquest.entities.damage import DamageType
 from kernelquest.entities.malware import KernelPanic, Malware, SegFault, ZombieProcess
+from kernelquest.entities.malware_registry import maybe_get as maybe_get_species
 from kernelquest.entities.patch import CATALOG as PATCH_CATALOG
 from kernelquest.entities.patch import Patch, PatchEffects, PatchState
 from kernelquest.entities.player import Player
 from kernelquest.entities.program import starter_loadout
 from kernelquest.systems.ai import run_enemy_turn
-from kernelquest.systems.combat import player_attack
+from kernelquest.systems.combat import fire_death_effects, player_attack
 from kernelquest.systems.daemons import (
     damage_multiplier_on_attack,
 )
@@ -83,6 +87,7 @@ from kernelquest.ui import themes as themes_mod
 from kernelquest.ui.cinematics import CinematicPlayer
 from kernelquest.ui.console_log import ConsoleLog, LogLevel
 from kernelquest.ui.fx import FloatingTextSystem, ParticleSystem, ScreenShake
+from kernelquest.ui.music import StemMixer
 from kernelquest.ui.renderer import UIManager
 from kernelquest.ui.sfx import SoundManager
 from kernelquest.ui.sprites import get_player_palette
@@ -137,7 +142,16 @@ class GameEngine:
         self._daemons_repo: DaemonRepository | None = None
         self._daily_repo: DailyRunRepository | None = None
         self._lore_repo: LoreRepository | None = None
-
+        self._intel_repo: IntelRepository | None = None
+        self._combat_log_repo: CombatLogRepository | None = None
+        # Phase 8 — per-run summary buckets keyed by (program_key, species_key).
+        self._run_combat_log: dict[tuple[str, str], dict[str, int]] = {}
+        # Inspect mode + bestiary navigation.
+        self._inspect_index: int = 0
+        self._bestiary_scroll: int = 0
+        self._post_run_summary: list[tuple[str, str, int, int]] = []
+        # Phase 8 — adaptive music director.
+        self._music: StemMixer = StemMixer()
         self._state: GameState = GameState.MENU
         self._seed_override = seed
         self._rng: random.Random = random.Random(seed)
@@ -194,6 +208,8 @@ class GameEngine:
         self._daemons_repo = DaemonRepository(self._database)
         self._daily_repo = DailyRunRepository(self._database)
         self._lore_repo = LoreRepository(self._database)
+        self._intel_repo = IntelRepository(self._database)
+        self._combat_log_repo = CombatLogRepository(self._database)
         self._settings = settings_module.load(self._meta)
         # Grant the starter daemon on the very first launch.
         if not self._daemons_repo.owned():
@@ -264,6 +280,10 @@ class GameEngine:
             self._cinematic.step(dt)
             if self._cinematic.finished:
                 self._end_cinematic()
+        # Phase 8 — adaptive music crossfade.
+        self._music.step(dt)
+        if self._sfx is not None:
+            self._sfx.apply_stem_volumes(self._music.current_volumes())
 
     def _handle_events(self) -> None:
         for event in pygame.event.get():
@@ -312,6 +332,10 @@ class GameEngine:
                 self._handle_codex_key(event)
             elif self._state is GameState.STACK_TRACE:
                 self._handle_stack_trace_key(event)
+            elif self._state is GameState.BESTIARY:
+                self._handle_bestiary_key(event)
+            elif self._state is GameState.INSPECT:
+                self._handle_inspect_key(event)
 
     def _apply_display_mode(self) -> None:
         flags = pygame.FULLSCREEN if self._settings.fullscreen else 0
@@ -474,6 +498,15 @@ class GameEngine:
             self._show_help_overlay = not self._show_help_overlay
             return
 
+        if event.key == pygame.K_i:
+            self._enter_inspect_mode()
+            return
+
+        if event.key == pygame.K_b:
+            self._state = GameState.BESTIARY
+            self._bestiary_scroll = 0
+            return
+
         if event.key == pygame.K_SPACE:
             self._end_player_turn()
             return
@@ -483,6 +516,13 @@ class GameEngine:
             result = execute_program(world, program_slot, self._rng)
             self._console.info(result.message)
             if result.success:
+                if result.program_key and result.target_species:
+                    self._record_combat(
+                        program_key=result.program_key,
+                        species_key=result.target_species,
+                        damage=result.damage_dealt,
+                        killed=1 if result.killed_enemy is not None else 0,
+                    )
                 if result.killed_enemy is not None:
                     self._on_enemy_killed(result.killed_enemy)
                 world.recompute_fov()
@@ -598,6 +638,7 @@ class GameEngine:
             ui.render_howtoplay(self._howtoplay_lines, self._howtoplay_scroll)
         elif self._state is GameState.GAME_OVER and self._world is not None:
             ui.render_game_over(self._world.player, self._name_buffer)
+            ui.render_post_run_summary(self._post_run_summary)
         elif self._state is GameState.HIGH_SCORES:
             ui.render_high_scores(self._fetch_high_scores())
         elif self._state is GameState.DAILY_BOARD:
@@ -627,6 +668,28 @@ class GameEngine:
         elif self._state is GameState.STACK_TRACE:
             depth = self._world.player.depth_reached if self._world is not None else 0
             ui.render_stack_trace(self._stack_trace_lines, depth)
+        elif self._state is GameState.BESTIARY:
+            rows = self._bestiary_rows()
+            if rows:
+                self._bestiary_scroll = max(0, min(self._bestiary_scroll, len(rows) - 1))
+            ui.render_bestiary(rows, self._bestiary_scroll)
+        elif self._state is GameState.INSPECT and self._world is not None:
+            ui.clear()
+            ui.render_world(
+                self._world,
+                self._viewport,
+                shake=self._shake,
+                particles=self._particles,
+            )
+            ui.render_floating_text(self._floats, self._viewport)
+            ui.render_hud(
+                self._world.player,
+                sector=self._world.player.depth_reached,
+                world=self._world,
+                patches=[p.label for p in self._patches.selected],
+            )
+            ui.render_console(self._console)
+            self._render_inspect_overlay(ui)
         ui.present()
 
     # ----- transitions -----
@@ -727,7 +790,20 @@ class GameEngine:
             ),
         )
         player.next_attack_multiplier = 1.0
-        result = player_attack(self._world, enemy, self._rng, damage=damage)
+        result = player_attack(
+            self._world,
+            enemy,
+            self._rng,
+            damage=damage,
+            damage_type=DamageType.KINETIC,
+            program_key="bump",
+        )
+        self._record_combat(
+            program_key="bump",
+            species_key=enemy.species_key,
+            damage=result.damage_dealt,
+            killed=1 if result.killed else 0,
+        )
         self._console.info(result.log_message)
         self._play_sfx("attack")
         ex, ey = enemy.position
@@ -742,10 +818,34 @@ class GameEngine:
         self._world.recompute_fov()
         self._after_player_action()
 
+    def _record_combat(
+        self,
+        *,
+        program_key: str,
+        species_key: str,
+        damage: int,
+        killed: int,
+    ) -> None:
+        if not species_key:
+            return
+        if damage > 0 and self._intel_repo is not None:
+            self._intel_repo.record_damage_to(species_key, damage)
+        bucket = self._run_combat_log.setdefault(
+            (program_key, species_key), {"damage": 0, "kills": 0}
+        )
+        bucket["damage"] += max(0, damage)
+        bucket["kills"] += max(0, killed)
+
     def _on_enemy_killed(self, enemy: Malware) -> None:
         assert self._world is not None
         player = self._world.player
         self._shake.punch(SCREEN_SHAKE_KILL_INTENSITY)
+        # Phase 8 \u2014 fire affix on-death side effects (Volatile blast etc.)
+        for line in fire_death_effects(self._world, enemy):
+            self._console.warn(line)
+        # Phase 8 \u2014 intel kill record.
+        if self._intel_repo is not None and enemy.species_key:
+            self._intel_repo.record_kill(enemy.species_key)
         self._world.remove_dead_enemies()
         self._play_sfx("explode")
         # Phase 7 lore unlocks.
@@ -862,11 +962,31 @@ class GameEngine:
     def _after_player_action(self) -> None:
         assert self._world is not None
         player = self._world.player
+        # Phase 8 — refresh adaptive music targets from visible enemies.
+        self._refresh_music_targets()
         if not player.is_alive:
             self._enter_game_over()
             return
         if player.cpu_cycles == 0:
             self._end_player_turn()
+
+    def _refresh_music_targets(self) -> None:
+        if self._world is None:
+            return
+        from kernelquest.entities.malware_registry import maybe_get as _maybe
+
+        archetypes = set()
+        for enemy in self._world.enemies:
+            if not enemy.is_alive or enemy.position not in self._world.visible:
+                continue
+            sp = _maybe(enemy.species_key)
+            if sp is not None:
+                archetypes.add(sp.archetype)
+        self._music.update_targets(
+            archetypes,
+            boss_active=self._boss_active,
+            reduce_motion=self._settings.reduce_motion,
+        )
 
     def _end_player_turn(self) -> None:
         assert self._world is not None
@@ -970,7 +1090,33 @@ class GameEngine:
             self._unlock_lore_for("first_crash")
         # Crash-cause-specific lore (e.g. ``cause_Logic Bomb``).
         self._unlock_lore_for(f"cause_{cause}")
+        # Phase 8 — compute post-run summary rows + persist combat log.
+        self._post_run_summary = self._compose_run_summary()
+        self._persist_combat_log()
         self._state = GameState.GAME_OVER
+
+    def _compose_run_summary(self) -> list[tuple[str, str, int, int]]:
+        from kernelquest.entities.malware_registry import maybe_get as _maybe
+
+        rows: list[tuple[str, str, int, int]] = []
+        for (prog, species), stats in self._run_combat_log.items():
+            sp = _maybe(species)
+            label = sp.label if sp is not None else species
+            rows.append((prog, label, stats["damage"], stats["kills"]))
+        rows.sort(key=lambda r: r[2], reverse=True)
+        return rows[:10]
+
+    def _persist_combat_log(self) -> None:
+        if self._combat_log_repo is None:
+            return
+        for (prog, species), stats in self._run_combat_log.items():
+            self._combat_log_repo.insert(
+                program_key=prog,
+                species_key=species,
+                damage=stats["damage"],
+                kills=stats["kills"],
+            )
+        self._run_combat_log.clear()
 
     def _save_run(self) -> None:
         if (
@@ -1299,6 +1445,126 @@ class GameEngine:
                 self._open_patch_picker()
             else:
                 self._state = GameState.PLAYING
+
+    # ----- Phase 8 — Bestiary & Inspect -----
+
+    def _bestiary_rows(
+        self,
+    ) -> list[tuple[str, str, int, int, int, str, str, str]]:
+        """Compose ``render_bestiary`` rows from the IntelRepository + registry."""
+        from kernelquest.entities.malware_registry import SPECIES
+
+        if self._intel_repo is None:
+            return []
+        intel_by_key = {row.species_key: row for row in self._intel_repo.all()}
+        rows: list[tuple[str, str, int, int, int, str, str, str]] = []
+        for sp in SPECIES:
+            data = intel_by_key.get(sp.key)
+            tier = data.intel_level if data is not None else 0
+            kills = data.kills if data is not None else 0
+            dmg = data.damage_dealt_to if data is not None else 0
+            weakness = self._weakness_label(sp)
+            rows.append(
+                (
+                    sp.key,
+                    sp.label,
+                    tier,
+                    kills,
+                    dmg,
+                    sp.archetype.value,
+                    weakness,
+                    sp.lore_blurb,
+                )
+            )
+        return rows
+
+    @staticmethod
+    def _weakness_label(species: object) -> str:
+        # Cheapest weakness: pick the highest resistance-multiplier > 1.0 type.
+        weakest = ""
+        best = 1.0
+        for kind, mult in getattr(species, "resistances", {}).items():
+            if mult > best:
+                best = mult
+                weakest = f"{kind.value} (×{mult:g})"
+        if not weakest:
+            cp = getattr(species, "counter_program", "")
+            if cp:
+                weakest = f"counter: {cp}"
+        return weakest or "—"
+
+    def _handle_bestiary_key(self, event: pygame.event.Event) -> None:
+        rows = self._bestiary_rows()
+        if not rows:
+            self._state = GameState.PLAYING
+            return
+        if event.key in (pygame.K_ESCAPE, pygame.K_BACKSPACE, pygame.K_b):
+            # Back to where we came from — PLAYING if we have a world.
+            self._state = GameState.PLAYING if self._world is not None else GameState.MENU
+        elif event.key in (pygame.K_UP, pygame.K_w):
+            self._bestiary_scroll = (self._bestiary_scroll - 1) % len(rows)
+        elif event.key in (pygame.K_DOWN, pygame.K_s):
+            self._bestiary_scroll = (self._bestiary_scroll + 1) % len(rows)
+
+    def _enter_inspect_mode(self) -> None:
+        if self._world is None:
+            return
+        targets = self._inspectable_enemies()
+        if not targets:
+            self._console.info("No visible processes to inspect.")
+            return
+        self._inspect_index = 0
+        self._state = GameState.INSPECT
+
+    def _inspectable_enemies(self) -> list[Malware]:
+        if self._world is None:
+            return []
+        return [
+            e
+            for e in self._world.enemies
+            if e.is_alive and e.visible_to_player and e.position in self._world.visible
+        ]
+
+    def _handle_inspect_key(self, event: pygame.event.Event) -> None:
+        targets = self._inspectable_enemies()
+        if not targets:
+            self._state = GameState.PLAYING
+            return
+        if event.key in (pygame.K_ESCAPE, pygame.K_i, pygame.K_BACKSPACE):
+            self._state = GameState.PLAYING
+        elif event.key in (pygame.K_TAB, pygame.K_RIGHT, pygame.K_d):
+            self._inspect_index = (self._inspect_index + 1) % len(targets)
+        elif event.key in (pygame.K_LEFT, pygame.K_a):
+            self._inspect_index = (self._inspect_index - 1) % len(targets)
+
+    def _render_inspect_overlay(self, ui: UIManager) -> None:
+        targets = self._inspectable_enemies()
+        if not targets:
+            return
+        self._inspect_index = self._inspect_index % len(targets)
+        enemy = targets[self._inspect_index]
+        species = maybe_get_species(enemy.species_key)
+        intel = (
+            self._intel_repo.get(enemy.species_key)
+            if self._intel_repo is not None and enemy.species_key
+            else None
+        )
+        tier = intel.intel_level if intel is not None else 0
+        kills = intel.kills if intel is not None else 0
+        dmg = intel.damage_dealt_to if intel is not None else 0
+        weakness = self._weakness_label(species) if species is not None else "—"
+        ex, ey = enemy.position
+        screen_pos = self._viewport.to_screen(ex, ey)
+        anchor = (screen_pos[0] + 24, screen_pos[1] - 16)
+        ui.render_inspect_overlay(
+            anchor,
+            label=enemy.name,
+            tier=tier,
+            kills=kills,
+            damage_dealt=dmg,
+            weakness=weakness,
+            affixes=enemy.affixes.badges(),
+        )
 
 
 def _key_to_delta(key: int) -> tuple[int, int] | None:

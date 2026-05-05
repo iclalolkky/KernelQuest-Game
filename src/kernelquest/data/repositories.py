@@ -388,3 +388,171 @@ class LoreRepository:
                 "INSERT OR IGNORE INTO lore_unlocked (key) VALUES (?);", (key,)
             )
         return cursor.rowcount > 0
+
+
+@dataclass(frozen=True)
+class IntelRow:
+    """A single ``enemy_intel`` row."""
+
+    species_key: str
+    kills: int
+    damage_dealt_to: int
+    damage_received: int
+    intel_level: int
+    weakness_revealed: bool
+
+
+class IntelRepository:
+    """Phase 8 — per-species recognition / Bestiary tracking.
+
+    Tier transitions:
+    - 1 kill or 1 hit → intel_level >= 1
+    - 5 kills OR 20 damage_dealt_to → intel_level >= 2 (weakness revealed)
+    - 15 kills OR 60 damage_dealt_to → intel_level >= 3 (full info)
+    """
+
+    def __init__(self, database: Database) -> None:
+        self._db = database
+
+    def _ensure_row(self, species_key: str) -> None:
+        with self._db.connection:
+            self._db.connection.execute(
+                "INSERT OR IGNORE INTO enemy_intel (species_key) VALUES (?);",
+                (species_key,),
+            )
+
+    def get(self, species_key: str) -> IntelRow:
+        self._ensure_row(species_key)
+        row = self._db.connection.execute(
+            "SELECT species_key, kills, damage_dealt_to, damage_received,"
+            " intel_level, weakness_revealed FROM enemy_intel WHERE species_key = ?;",
+            (species_key,),
+        ).fetchone()
+        return IntelRow(
+            species_key=row["species_key"],
+            kills=row["kills"],
+            damage_dealt_to=row["damage_dealt_to"],
+            damage_received=row["damage_received"],
+            intel_level=row["intel_level"],
+            weakness_revealed=bool(row["weakness_revealed"]),
+        )
+
+    def all(self) -> list[IntelRow]:
+        rows = self._db.connection.execute(
+            "SELECT species_key, kills, damage_dealt_to, damage_received,"
+            " intel_level, weakness_revealed FROM enemy_intel;"
+        ).fetchall()
+        return [
+            IntelRow(
+                species_key=r["species_key"],
+                kills=r["kills"],
+                damage_dealt_to=r["damage_dealt_to"],
+                damage_received=r["damage_received"],
+                intel_level=r["intel_level"],
+                weakness_revealed=bool(r["weakness_revealed"]),
+            )
+            for r in rows
+        ]
+
+    @staticmethod
+    def _tier_for(kills: int, damage_dealt_to: int) -> int:
+        if kills >= 15 or damage_dealt_to >= 60:
+            return 3
+        if kills >= 5 or damage_dealt_to >= 20:
+            return 2
+        if kills >= 1 or damage_dealt_to >= 1:
+            return 1
+        return 0
+
+    def _bump(
+        self,
+        species_key: str,
+        *,
+        kills_delta: int = 0,
+        dmg_dealt_delta: int = 0,
+        dmg_recv_delta: int = 0,
+    ) -> int:
+        self._ensure_row(species_key)
+        with self._db.connection:
+            self._db.connection.execute(
+                "UPDATE enemy_intel SET kills = kills + ?,"
+                " damage_dealt_to = damage_dealt_to + ?,"
+                " damage_received = damage_received + ?"
+                " WHERE species_key = ?;",
+                (kills_delta, dmg_dealt_delta, dmg_recv_delta, species_key),
+            )
+            row = self._db.connection.execute(
+                "SELECT kills, damage_dealt_to, intel_level FROM enemy_intel"
+                " WHERE species_key = ?;",
+                (species_key,),
+            ).fetchone()
+            new_tier = self._tier_for(row["kills"], row["damage_dealt_to"])
+            if new_tier > row["intel_level"]:
+                self._db.connection.execute(
+                    "UPDATE enemy_intel SET intel_level = ?,"
+                    " weakness_revealed = ? WHERE species_key = ?;",
+                    (new_tier, 1 if new_tier >= 2 else 0, species_key),
+                )
+                return new_tier
+            return int(row["intel_level"])
+
+    def record_damage_to(self, species_key: str, damage: int) -> int:
+        if not species_key or damage <= 0:
+            return 0
+        return self._bump(species_key, dmg_dealt_delta=damage)
+
+    def record_damage_from(self, species_key: str, damage: int) -> int:
+        if not species_key or damage <= 0:
+            return 0
+        return self._bump(species_key, dmg_recv_delta=damage)
+
+    def record_kill(self, species_key: str) -> int:
+        if not species_key:
+            return 0
+        return self._bump(species_key, kills_delta=1)
+
+    def reveal(self, species_key: str) -> int:
+        """Forcefully bump intel to tier 2 (used by `tcpdump`/`grep` daemons)."""
+        if not species_key:
+            return 0
+        self._ensure_row(species_key)
+        with self._db.connection:
+            self._db.connection.execute(
+                "UPDATE enemy_intel SET intel_level = MAX(intel_level, 2),"
+                " weakness_revealed = 1 WHERE species_key = ?;",
+                (species_key,),
+            )
+        return self.get(species_key).intel_level
+
+
+class CombatLogRepository:
+    """Phase 8 — lifetime per-(program, species) damage records."""
+
+    def __init__(self, database: Database) -> None:
+        self._db = database
+
+    def insert(
+        self,
+        *,
+        program_key: str,
+        species_key: str,
+        damage: int,
+        kills: int,
+    ) -> None:
+        with self._db.connection:
+            self._db.connection.execute(
+                "INSERT INTO combat_log (program_key, species_key, damage, kills)"
+                " VALUES (?, ?, ?, ?);",
+                (program_key, species_key, damage, kills),
+            )
+
+    def best_program_for(self, species_key: str) -> tuple[str, int] | None:
+        row = self._db.connection.execute(
+            "SELECT program_key, SUM(damage) AS total FROM combat_log"
+            " WHERE species_key = ? GROUP BY program_key"
+            " ORDER BY total DESC LIMIT 1;",
+            (species_key,),
+        ).fetchone()
+        if row is None or row["total"] is None:
+            return None
+        return (row["program_key"], int(row["total"]))

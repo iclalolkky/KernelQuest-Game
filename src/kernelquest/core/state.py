@@ -24,4 +24,7 @@ class GameState(Enum):
     ENDING = auto()
     CODEX = auto()
     STACK_TRACE = auto()
+    # Phase 8 — recognition.
+    BESTIARY = auto()
+    INSPECT = auto()
     QUIT = auto()

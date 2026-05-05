@@ -20,6 +20,9 @@ class ProgramResult:
     killed_enemy: Malware | None = None
     revealed_full_map: bool = False
     spawned_decoy_at: tuple[int, int] | None = None
+    program_key: str = ""
+    damage_dealt: int = 0
+    target_species: str = ""
 
 
 def execute_program(world: World, slot_index: int, rng: random.Random) -> ProgramResult:
@@ -77,7 +80,14 @@ def _exec_kill9(world: World, slot: ProgramSlot) -> ProgramResult:
         # Could be a ZombieProcess that revived; finish the job.
         target.take_damage(target.max_hp)
     _consume(world, slot)
-    return ProgramResult(True, f"kill -9: terminated {target.name}", killed_enemy=target)
+    return ProgramResult(
+        True,
+        f"kill -9: terminated {target.name}",
+        killed_enemy=target,
+        program_key="kill9",
+        damage_dealt=target.max_hp,
+        target_species=target.species_key,
+    )
 
 
 def _exec_sudo(player, slot: ProgramSlot) -> ProgramResult:  # type: ignore[no-untyped-def]
@@ -92,8 +102,20 @@ def _exec_grep(world: World, slot: ProgramSlot) -> ProgramResult:
     full = {(x, y) for x in range(world.grid.width) for y in range(world.grid.height)}
     world.visible = full
     world.explored |= full
+    # Phase 8 — `grep` decrypts every Encrypted enemy currently on the sector.
+    decrypted = 0
+    for enemy in world.enemies:
+        if enemy.affixes.encrypted_against is not None:
+            enemy.affixes.encrypted_against = None
+            decrypted += 1
     _consume(world, slot)
-    return ProgramResult(True, "grep: full sector revealed.", revealed_full_map=True)
+    suffix = f" ({decrypted} decrypted)" if decrypted else ""
+    return ProgramResult(
+        True,
+        f"grep: full sector revealed{suffix}.",
+        revealed_full_map=True,
+        program_key="grep",
+    )
 
 
 def _exec_nice(world: World, slot: ProgramSlot) -> ProgramResult:

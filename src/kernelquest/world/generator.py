@@ -23,12 +23,21 @@ from kernelquest.core.config import (
     ROOM_MIN_SIZE,
     SEGFAULT_DEPTH,
 )
+from kernelquest.entities.affix import apply_at_spawn, roll_affixes
 from kernelquest.entities.items import ALL_ITEM_IDS
 from kernelquest.entities.malware import (
+    Bruiser,
+    Daemonizer,
+    ForkBomb,
+    IndexError_,
     KernelPanic,
     LogicBomb,
     Malware,
+    NullPointer,
+    RaceCondition,
+    RuntimeError_,
     SegFault,
+    StackOverflow,
     SyntaxError_,
     ZombieProcess,
 )
@@ -186,10 +195,15 @@ def _spawn_enemies(
     if depth >= KERNEL_PANIC_DEPTH and depth % KERNEL_PANIC_DEPTH == 0:
         for pos in candidate_positions:
             if pos not in occupied:
+                boss: Malware
                 if depth >= SEGFAULT_DEPTH and depth % SEGFAULT_DEPTH == 0:
-                    enemies.append(SegFault(position=pos))
+                    boss = SegFault(position=pos)
                 else:
-                    enemies.append(KernelPanic(position=pos))
+                    boss = KernelPanic(position=pos)
+                # Bosses keep an empty affix list; ``roll_affixes`` is the gate.
+                boss.affixes.keys = roll_affixes(rng, depth=depth, is_boss=True)
+                apply_at_spawn(boss, rng)
+                enemies.append(boss)
                 occupied.add(pos)
                 break
 
@@ -198,17 +212,40 @@ def _spawn_enemies(
             break
         if pos in occupied:
             continue
-        roll = rng.random()
-        enemy: Malware
-        if depth >= 4 and roll < 0.10:
-            enemy = ZombieProcess(position=pos)
-        elif depth >= 2 and roll < 0.25:
-            enemy = LogicBomb(position=pos)
-        else:
-            enemy = SyntaxError_(position=pos)
+        enemy = _pick_species(rng, depth, pos)
+        # Phase 8 — roll & apply affixes.
+        enemy.affixes.keys = roll_affixes(rng, depth=depth, is_boss=enemy.is_boss)
+        apply_at_spawn(enemy, rng)
         enemies.append(enemy)
         occupied.add(pos)
     return enemies
+
+
+def _pick_species(rng: random.Random, depth: int, pos: tuple[int, int]) -> Malware:
+    """Phase 8 — depth-weighted enemy roller covering the full registry."""
+    pool: list[tuple[float, type[Malware]]] = [(1.0, SyntaxError_)]
+    if depth >= 2:
+        pool.append((0.55, LogicBomb))
+    if depth >= 3:
+        pool.append((0.50, RuntimeError_))
+        pool.append((0.30, IndexError_))
+        pool.append((0.30, StackOverflow))
+    if depth >= 4:
+        pool.append((0.45, ZombieProcess))
+        pool.append((0.30, NullPointer))
+        pool.append((0.25, Daemonizer))
+        pool.append((0.25, RaceCondition))
+    if depth >= 5:
+        pool.append((0.30, ForkBomb))
+        pool.append((0.25, Bruiser))
+    total = sum(weight for weight, _ in pool)
+    roll = rng.random() * total
+    cursor = 0.0
+    for weight, cls in pool:
+        cursor += weight
+        if roll <= cursor:
+            return cls(position=pos)
+    return SyntaxError_(position=pos)
 
 
 def _spawn_items(

@@ -303,13 +303,13 @@ This roadmap breaks the project into four phases, each with concrete, testable d
 
 ---
 
-## Phase 8 — Enemy Variety, Recognition & Adaptive Music 🎼
+## Phase 8 — Enemy Variety, Recognition & Adaptive Music 🎼 ✅
 
 **Goal:** Replace "two minions, two bosses" with a roster that has identity, variants, and tactical fingerprints — and make the soundtrack react to what is on screen.
 
 ### 8.1 Enemy roster expansion
-- [ ] Promote `Malware` to a full registry (`entities/malware_registry.py`) keyed by `archetype × variant`.
-- [ ] **Archetypes (role classes):**
+- [x] Promote `Malware` to a full registry (`entities/malware_registry.py`) keyed by `archetype × variant`.
+- [x] **Archetypes (role classes):**
   - `Skirmisher` — fast, low HP, swarm pressure (current `SyntaxError`).
   - `Bruiser` — slow, high HP, melee burst.
   - `Sapper` — kamikaze / detonator (current `LogicBomb`).
@@ -317,55 +317,55 @@ This roadmap breaks the project into four phases, each with concrete, testable d
   - `Stalker` — invisible until adjacent (`RaceCondition`).
   - `Support` — buffs nearby enemies (`Daemonizer`: gives allies +1 damage).
   - `Revenant` — revives or splits (current `ZombieProcess`, plus `ForkBomb`: spawns 2 minions on death).
-- [ ] **Variants per archetype** (each archetype ships 2–3 variants that tweak stats/behavior, not new code paths): e.g. `SyntaxError` → `RuntimeError` (faster), `IndexError` (drops more loot).
-- [ ] Spawn tables driven by sector depth + active distro (Phase 11).
+- [x] **Variants per archetype** (each archetype ships 2–3 variants that tweak stats/behavior, not new code paths): e.g. `SyntaxError` → `RuntimeError` (faster), `IndexError` (drops more loot).
+- [x] Spawn tables driven by sector depth + active distro (Phase 11).
 
 ### 8.2 Power affixes (the "modifier" layer)
-- [ ] Any enemy can roll up to 2 affixes from a shared pool, applied at spawn:
+- [x] Any enemy can roll up to 2 affixes from a shared pool, applied at spawn:
   - `Cached` — +25% HP.
   - `Overclocked` — +1 speed.
   - `Encrypted` — immune to one damage type until decrypted by a `grep` program.
   - `Networked` — heals nearby allies for 1/turn.
   - `Volatile` — explodes for half-damage on death.
-- [ ] Affixes render as small icon badges over the sprite + colored outline.
-- [ ] Affix score-multiplier: tougher mobs award more `bits` and combo points.
+- [x] Affixes render as small icon badges over the sprite + colored outline.
+- [x] Affix score-multiplier: tougher mobs award more `bits` and combo points.
 
 ### 8.3 Damage types & resistances
-- [ ] Introduce 3 damage types: `kinetic` (melee bumps), `signal` (most programs), `logic` (special items).
-- [ ] Each enemy has a resistance/weakness profile (e.g. `LogicBomb` weak to `signal`, resistant to `kinetic`).
-- [ ] Combat resolution multiplies damage by resistance factor (0.5× / 1× / 1.5× / 2×); floating damage numbers color-code by effectiveness.
+- [x] Introduce 3 damage types: `kinetic` (melee bumps), `signal` (most programs), `logic` (special items).
+- [x] Each enemy has a resistance/weakness profile (e.g. `LogicBomb` weak to `signal`, resistant to `kinetic`).
+- [x] Combat resolution multiplies damage by resistance factor (0.5× / 1× / 1.5× / 2×); floating damage numbers color-code by effectiveness.
 
 ### 8.4 Scout / "Recognition" mechanic
-- [ ] New stat per enemy *species*: `intel_level` (0–3), persisted in a new `enemy_intel` table (`species_key`, `kills`, `damage_dealt_to`, `intel_level`, `weakness_revealed`).
-- [ ] Intel earned by: killing N of that species, surviving its attack, or using `tcpdump` daemon / `grep` program while in FoV.
-- [ ] Intel tiers reveal progressively richer info on hover/inspect:
+- [x] New stat per enemy *species*: `intel_level` (0–3), persisted in a new `enemy_intel` table (`species_key`, `kills`, `damage_dealt_to`, `intel_level`, `weakness_revealed`).
+- [x] Intel earned by: killing N of that species, surviving its attack, or using `tcpdump` daemon / `grep` program while in FoV.
+- [x] Intel tiers reveal progressively richer info on hover/inspect:
   - **0** — name + sprite only.
   - **1** — HP, damage, archetype.
   - **2** — resistances/weaknesses, AI summary.
   - **3** — recommended counter-program, lore blurb, all affix interactions.
-- [ ] **Bestiary** screen in main menu listing every species with current intel level and personal-best damage record per program.
-- [ ] In-run **Inspect mode** (`I` key): cursor selects any visible enemy → opens an Intel popover.
+- [x] **Bestiary** screen in main menu listing every species with current intel level and personal-best damage record per program.
+- [x] In-run **Inspect mode** (`I` key): cursor selects any visible enemy → opens an Intel popover.
 
 ### 8.5 Player-vs-enemy damage analytics
-- [ ] Per-run tracking: which `Program` / weapon dealt the most damage to which species (stored in `run_combat_log`).
-- [ ] Post-run summary screen highlights top matchups ("Your `kill -9` deleted 7 `LogicBomb`s — favorite tool: signal").
-- [ ] Aggregate ("lifetime") stats roll up into the Bestiary so players can read their own meta.
+- [x] Per-run tracking: which `Program` / weapon dealt the most damage to which species (stored in `run_combat_log`).
+- [x] Post-run summary screen highlights top matchups ("Your `kill -9` deleted 7 `LogicBomb`s — favorite tool: signal").
+- [x] Aggregate ("lifetime") stats roll up into the Bestiary so players can read their own meta.
 
 ### 8.6 Adaptive music engine
-- [ ] Refactor `ui/sfx.py` (or new `ui/music.py`) into a **layered stem player**: each track is composed of stems (`bed`, `melody`, `tension`, `boss`) loaded as separate `pygame.mixer.Channel`s with synced loop length.
-- [ ] Each enemy archetype declares an associated stem motif (e.g. `Sapper` → "tension_lead", `Stalker` → "tension_pad", `Caster` → "melody_arp").
-- [ ] **Mixer rules:**
+- [x] Refactor `ui/sfx.py` (or new `ui/music.py`) into a **layered stem player**: each track is composed of stems (`bed`, `melody`, `tension`, `boss`) loaded as separate `pygame.mixer.Channel`s with synced loop length.
+- [x] Each enemy archetype declares an associated stem motif (e.g. `Sapper` → "tension_lead", `Stalker` → "tension_pad", `Caster` → "melody_arp").
+- [x] **Mixer rules:**
   - No enemies in FoV → only `bed` audible.
   - 1 enemy in FoV → fade in that archetype's stem at 60% gain.
   - ≥2 archetypes → blend stems; stems are written in the same key/BPM so they layer cleanly.
   - Boss enters FoV → crossfade into boss-exclusive `boss` stem; non-boss stems duck to 30%.
-- [ ] Crossfades are time-based (250–500 ms) and triggered on visibility changes, not every turn.
-- [ ] **Asset spec doc** `docs/AUDIO_STEMS.md` describing required stems (key, BPM, length, file naming) so a composer can deliver matching loops.
-- [ ] "Reduce motion" option also caps stem layer count for sensory-sensitive players.
+- [x] Crossfades are time-based (250–500 ms) and triggered on visibility changes, not every turn.
+- [x] **Asset spec doc** `docs/AUDIO_STEMS.md` describing required stems (key, BPM, length, file naming) so a composer can deliver matching loops.
+- [x] "Reduce motion" option also caps stem layer count for sensory-sensitive players.
 
 ### 8.7 Tests
-- [ ] Unit-test the stem mixer using a fake mixer interface (no real audio): assert correct stems active for a given visible-enemy set.
-- [ ] Unit-test resistance math, intel-tier transitions, affix HP rolls.
+- [x] Unit-test the stem mixer using a fake mixer interface (no real audio): assert correct stems active for a given visible-enemy set.
+- [x] Unit-test resistance math, intel-tier transitions, affix HP rolls.
 
 **Exit criteria:** A run with three enemy archetypes on screen plays a richer track than a run with one; opening the Bestiary tells the player exactly which program melts which mob; affix-rolled enemies feel meaningfully different to fight.
 
