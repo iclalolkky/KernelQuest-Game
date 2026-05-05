@@ -259,45 +259,45 @@ This roadmap breaks the project into four phases, each with concrete, testable d
 
 ---
 
-## Phase 7 — Narrative & Identity: "init(0)" 📖
+## Phase 7 — Narrative & Identity: "init(0)" 📖 ✅
 
 **Goal:** Give the player a *who*, a *why*, and a *face*. Today the protagonist is a yellow dot with no story; we will turn the run into a journey through a dying machine, with a clear protagonist, antagonist, and world rules. The narrative is the spine that every later phase (enemies, bosses, distros) will hang dialogue and flavor on.
 
 ### 7.1 Story bible
-- [ ] Author `docs/LORE.md`: world premise (a sentient kernel infected by a rogue process), factions, tone (cyber-noir / sysadmin folklore), do/don't list for writers.
-- [ ] Define the protagonist `init(0)` — a recovery process spawned by a panicking kernel; goals: reach `/proc/1`, purge the leak, restore uptime.
-- [ ] Define the antagonist `THE_LEAK` — corrupted PID 0 fragment that grows with every wasted cycle.
-- [ ] Define 5 supporting NPCs (vendor daemons in the shop, mentors in the tutorial, etc.).
+- [x] Author `docs/LORE.md`: world premise (a sentient kernel infected by a rogue process), factions, tone (cyber-noir / sysadmin folklore), do/don't list for writers.
+- [x] Define the protagonist `init(0)` — a recovery process spawned by a panicking kernel; goals: reach `/proc/1`, purge the leak, restore uptime.
+- [x] Define the antagonist `THE_LEAK` — corrupted PID 0 fragment that grows with every wasted cycle.
+- [x] Define 5 supporting NPCs (vendor daemons in the shop, mentors in the tutorial, etc.).
 
 ### 7.2 Protagonist redesign
-- [ ] Replace yellow circle with a 16×16 / 24×24 sprite: stylized "process glyph" (pulsing diamond core + 4 rotating I/O fins), distinct silhouette readable at a glance.
-- [ ] Idle animation (4 frames), walk animation (4 frames per direction), hit-flash, death dissolve.
-- [ ] Player palette swaps unlocked via meta-progression (1 default + 3 unlockable skins, each tied to a distro from Phase 11).
-- [ ] Tiny name-tag floats above the sprite showing the chosen handle (entered at run start).
+- [x] Replace yellow circle with a 16×16 / 24×24 sprite: stylized "process glyph" (pulsing diamond core + 4 rotating I/O fins), distinct silhouette readable at a glance.
+- [x] Idle animation (4 frames), walk animation (4 frames per direction), hit-flash, death dissolve.
+- [x] Player palette swaps unlocked via meta-progression (1 default + 3 unlockable skins, each tied to a distro from Phase 11).
+- [x] Tiny name-tag floats above the sprite showing the chosen handle (entered at run start).
 
 ### 7.3 Enemy redesign pass (visual layer only — combat behavior unchanged)
-- [ ] Each malware type gets a unique sprite + idle/attack animation that *telegraphs* its role:
+- [x] Each malware type gets a unique sprite + idle/attack animation that *telegraphs* its role:
   - `SyntaxError` — flickering red `;` glyph, jittery patrol idle.
   - `LogicBomb` — pulsing amber circle with growing fuse-ring as it nears the player.
   - `ZombieProcess` — desaturated grey sprite that goes corrupted-magenta after revive.
   - `KernelPanic` — large 2×2 BSOD-style block with glitching text overlay.
   - `SegFault` — half-rendered sprite that snaps to a new position on damage.
-- [ ] Death animations distinct per type (shatter, fizzle, BSOD-collapse, address-fault scatter).
+- [x] Death animations distinct per type (shatter, fizzle, BSOD-collapse, address-fault scatter).
 
 ### 7.4 Story delivery in-run
-- [ ] `Lore` table (id, key, title, body, unlock_condition).
-- [ ] Story beats unlocked by milestones: first kill, first boss, first distro completion, first death cause variety, sector 5/10/15.
-- [ ] Between-sector "Stack Trace" interstitial: a 1–3 line monologue from `init(0)` or a captured log line from `THE_LEAK`.
-- [ ] Codex screen in main menu (`Lore`) showing all unlocked entries; locked entries shown as `???`.
+- [x] `Lore` table (id, key, title, body, unlock_condition).
+- [x] Story beats unlocked by milestones: first kill, first boss, first distro completion, first death cause variety, sector 5/10/15.
+- [x] Between-sector "Stack Trace" interstitial: a 1–3 line monologue from `init(0)` or a captured log line from `THE_LEAK`.
+- [x] Codex screen in main menu (`Lore`) showing all unlocked entries; locked entries shown as `???`.
 
 ### 7.5 Cinematic intro & ending
-- [ ] 8–12 frame ASCII/pixel intro played on first launch (after Phase 6 first-boot detect): boot sequence → kernel panic → `init(0)` spawned.
-- [ ] "True ending" cutscene triggered only by a successful run (per Phase 11 success criteria).
-- [ ] Skippable with **ESC**; auto-skip after first viewing (toggle in Settings).
+- [x] 8–12 frame ASCII/pixel intro played on first launch (after Phase 6 first-boot detect): boot sequence → kernel panic → `init(0)` spawned.
+- [x] "True ending" cutscene triggered only by a successful run (per Phase 11 success criteria).
+- [x] Skippable with **ESC**; auto-skip after first viewing (toggle in Settings).
 
 ### 7.6 Naming & flavor unification
-- [ ] Audit every user-facing string against `docs/LORE.md`; replace generic copy ("You died") with in-world equivalents ("`init(0)` dumped core — signal: `<crash_cause>`").
-- [ ] Console log gets named voices: `[KERNEL]`, `[init]`, `[THE_LEAK]`, `[VENDOR]`.
+- [x] Audit every user-facing string against `docs/LORE.md`; replace generic copy ("You died") with in-world equivalents ("`init(0)` dumped core — signal: `<crash_cause>`").
+- [x] Console log gets named voices: `[KERNEL]`, `[init]`, `[THE_LEAK]`, `[VENDOR]`.
 
 **Exit criteria:** A new player understands within 60 seconds that they are a recovery process fighting a memory leak through a dying kernel, and the protagonist is visually distinct from every enemy on screen.
 

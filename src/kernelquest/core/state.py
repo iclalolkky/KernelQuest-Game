@@ -19,4 +19,9 @@ class GameState(Enum):
     DAILY_BOARD = auto()
     HOWTOPLAY = auto()
     TUTORIAL = auto()
+    # Phase 7 — narrative & identity.
+    INTRO = auto()
+    ENDING = auto()
+    CODEX = auto()
+    STACK_TRACE = auto()
     QUIT = auto()

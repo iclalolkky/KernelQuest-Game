@@ -105,4 +105,16 @@ MIGRATIONS: Final[list[tuple[str, str]]] = [
             ON daily_runs (run_date, total_score DESC);
         """,
     ),
+    (
+        "006_phase7_lore",
+        """
+        -- Phase 7 — narrative codex unlocks. Append-only tracking of which
+        -- lore entries the player has discovered, with a timestamp for the
+        -- "first unlocked" UX (e.g. NEW! badge in the Codex screen).
+        CREATE TABLE IF NOT EXISTS lore_unlocked (
+            key          TEXT PRIMARY KEY,
+            unlocked_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        """,
+    ),
 ]

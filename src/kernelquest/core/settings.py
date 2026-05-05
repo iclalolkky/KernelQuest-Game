@@ -30,6 +30,9 @@ _KEY_REDUCE_MOTION = "settings.reduce_motion"
 _KEY_CRT_EFFECT = "settings.crt_effect"
 _KEY_LARGE_TEXT = "settings.large_text"
 _KEY_TUTORIAL_DONE = "meta.tutorial_done"
+_KEY_INTRO_SEEN = "meta.intro_seen"
+_KEY_AUTO_SKIP_INTRO = "settings.auto_skip_intro"
+_KEY_PLAYER_PALETTE = "settings.player_palette"
 
 _DIFFICULTY_ORDER: tuple[Difficulty, ...] = (Difficulty.EASY, Difficulty.NORMAL, Difficulty.HARD)
 
@@ -49,6 +52,9 @@ class Settings:
     reduce_motion: bool = False
     crt_effect: bool = True
     large_text: bool = False
+    # Phase 7 — narrative & identity.
+    auto_skip_intro: bool = False
+    player_palette: str = "kernel"
 
     # ----- difficulty modifiers -----
 
@@ -101,6 +107,18 @@ class Settings:
     def toggle_large_text(self) -> None:
         self.large_text = not self.large_text
 
+    def toggle_auto_skip_intro(self) -> None:
+        self.auto_skip_intro = not self.auto_skip_intro
+
+    def cycle_palette(self, direction: int = 1) -> None:
+        # Imported lazily to avoid pulling pygame into headless callers.
+        from kernelquest.ui.sprites import PLAYER_PALETTES
+
+        keys = [p.key for p in PLAYER_PALETTES]
+        idx = keys.index(self.player_palette) if self.player_palette in keys else 0
+        idx = (idx + direction) % len(keys)
+        self.player_palette = keys[idx]
+
 
 def _bool(raw: str | None, default: bool) -> bool:
     if raw is None:
@@ -135,6 +153,8 @@ def load(meta: MetaRepository) -> Settings:
         reduce_motion=_bool(meta.get(_KEY_REDUCE_MOTION), False),
         crt_effect=_bool(meta.get(_KEY_CRT_EFFECT), True),
         large_text=_bool(meta.get(_KEY_LARGE_TEXT), False),
+        auto_skip_intro=_bool(meta.get(_KEY_AUTO_SKIP_INTRO), False),
+        player_palette=meta.get(_KEY_PLAYER_PALETTE) or "kernel",
     )
 
 
@@ -150,6 +170,8 @@ def save(meta: MetaRepository, settings: Settings) -> None:
     meta.set(_KEY_REDUCE_MOTION, "1" if settings.reduce_motion else "0")
     meta.set(_KEY_CRT_EFFECT, "1" if settings.crt_effect else "0")
     meta.set(_KEY_LARGE_TEXT, "1" if settings.large_text else "0")
+    meta.set(_KEY_AUTO_SKIP_INTRO, "1" if settings.auto_skip_intro else "0")
+    meta.set(_KEY_PLAYER_PALETTE, settings.player_palette)
 
 
 def is_tutorial_done(meta: MetaRepository) -> bool:
@@ -158,3 +180,11 @@ def is_tutorial_done(meta: MetaRepository) -> bool:
 
 def mark_tutorial_done(meta: MetaRepository) -> None:
     meta.set(_KEY_TUTORIAL_DONE, "1")
+
+
+def is_intro_seen(meta: MetaRepository) -> bool:
+    return _bool(meta.get(_KEY_INTRO_SEEN), False)
+
+
+def mark_intro_seen(meta: MetaRepository) -> None:
+    meta.set(_KEY_INTRO_SEEN, "1")

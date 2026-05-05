@@ -353,3 +353,38 @@ class DailyRunRepository:
             (run_date, player_name),
         ).fetchone()
         return row is not None
+
+
+class LoreRepository:
+    """Phase 7 — persistent codex-unlock tracking.
+
+    A lore key is "unlocked" exactly once; subsequent ``unlock`` calls are
+    no-ops and return ``False`` so callers can detect the first-time event
+    and route a `[KERNEL]`/`[init]` console line + Codex toast.
+    """
+
+    def __init__(self, database: Database) -> None:
+        self._db = database
+
+    def unlocked_keys(self) -> set[str]:
+        rows = self._db.connection.execute("SELECT key FROM lore_unlocked;").fetchall()
+        return {row["key"] for row in rows}
+
+    def is_unlocked(self, key: str) -> bool:
+        row = self._db.connection.execute(
+            "SELECT 1 FROM lore_unlocked WHERE key = ? LIMIT 1;", (key,)
+        ).fetchone()
+        return row is not None
+
+    def unlock(self, key: str) -> bool:
+        """Insert ``key`` into the unlock set.
+
+        Returns ``True`` if this call performed the unlock (i.e. it is the
+        first time the player has seen this entry), ``False`` if it was
+        already unlocked.
+        """
+        with self._db.connection:
+            cursor = self._db.connection.execute(
+                "INSERT OR IGNORE INTO lore_unlocked (key) VALUES (?);", (key,)
+            )
+        return cursor.rowcount > 0

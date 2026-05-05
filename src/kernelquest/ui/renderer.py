@@ -16,11 +16,20 @@ from kernelquest.core.config import (
     WINDOW_WIDTH,
 )
 from kernelquest.entities.items import get_item
-from kernelquest.entities.malware import KernelPanic, LogicBomb, Malware, SyntaxError_
+from kernelquest.entities.malware import Malware
 from kernelquest.entities.player import Player
 from kernelquest.ui import theme
+from kernelquest.ui.cinematics import CinematicPlayer, render_cinematic
 from kernelquest.ui.console_log import ConsoleLog, LogLevel
 from kernelquest.ui.fx import ParticleSystem, ScreenShake
+from kernelquest.ui.sprites import (
+    FrameClock,
+    PlayerPalette,
+    draw_enemy_sprite,
+    draw_player_nameplate,
+    draw_player_sprite,
+    get_player_palette,
+)
 from kernelquest.ui.viewport import Viewport
 from kernelquest.world.tile import TileType
 from kernelquest.world.world import World
@@ -82,6 +91,9 @@ class UIManager:
         self.font_title = pygame.font.SysFont("monospace", theme.FONT_SIZE_TITLE, bold=True)
         self._wave_phase: float = 0.0
         self._fx_rng = random.Random(0xC0FFEE)
+        # Phase 7 — sprite animation clock + selected palette.
+        self.frame_clock = FrameClock()
+        self.player_palette: PlayerPalette = get_player_palette("kernel")
 
     # ----- frame plumbing -----
 
@@ -89,6 +101,7 @@ class UIManager:
         self.screen.fill(theme.BACKGROUND)
 
     def present(self) -> None:
+        self.frame_clock.tick()
         pygame.display.flip()
 
     # ----- world rendering -----
@@ -152,34 +165,27 @@ class UIManager:
 
     def _render_enemy(self, enemy: Malware, viewport: Viewport) -> None:
         sx, sy = viewport.to_screen(*enemy.position)
-        rect = pygame.Rect(sx + 4, sy + 4, viewport.tile_size - 8, viewport.tile_size - 8)
-        if isinstance(enemy, KernelPanic):
-            color = theme.ENEMY_KERNEL_PANIC
-        elif isinstance(enemy, LogicBomb):
-            color = theme.ENEMY_LOGIC_BOMB
-        elif isinstance(enemy, SyntaxError_):
-            color = theme.ENEMY_SYNTAX_ERROR
-        else:
-            color = theme.NEON_AMBER
-        pygame.draw.rect(self.screen, color, rect, border_radius=4)
-        pygame.draw.rect(self.screen, theme.BACKGROUND, rect, width=1, border_radius=4)
-
-        pip_count = max(1, min(8, enemy.max_hp // 4))
-        pip_w = (viewport.tile_size - 8) // pip_count
-        filled = int(round(pip_count * (enemy.hp / max(1, enemy.max_hp))))
-        for i in range(pip_count):
-            pip_color = color if i < filled else theme.PANEL_BG
-            pip_rect = pygame.Rect(sx + 4 + i * pip_w, sy + 1, max(2, pip_w - 1), 3)
-            pygame.draw.rect(self.screen, pip_color, pip_rect)
+        rect = pygame.Rect(sx, sy, viewport.tile_size, viewport.tile_size)
+        draw_enemy_sprite(
+            self.screen,
+            rect,
+            enemy,
+            frame=self.frame_clock.frame,
+            font_small=self.font_small,
+            font_body=self.font_body,
+        )
 
     def render_player(self, player: Player, viewport: Viewport) -> None:
         sx, sy = viewport.to_screen(*player.position)
-        center = (sx + viewport.tile_size // 2, sy + viewport.tile_size // 2)
-        radius = viewport.tile_size // 2 - 4
-        pygame.draw.circle(self.screen, theme.PLAYER_COLOR, center, radius)
-        pygame.draw.circle(self.screen, theme.NEON_CYAN, center, radius, 2)
-        if player.has_scan_boost:
-            pygame.draw.circle(self.screen, theme.ITEM_SCAN_BOOST, center, radius + 4, 1)
+        rect = pygame.Rect(sx, sy, viewport.tile_size, viewport.tile_size)
+        draw_player_sprite(
+            self.screen,
+            rect,
+            frame=self.frame_clock.frame,
+            palette=self.player_palette,
+            has_scan_boost=player.has_scan_boost,
+        )
+        draw_player_nameplate(self.screen, rect, player.name, self.font_small)
 
     def render_particles(self, particles: ParticleSystem, viewport: Viewport) -> None:
         for p in particles.particles:
@@ -600,9 +606,9 @@ class UIManager:
         cx = WINDOW_WIDTH // 2
         cy = WINDOW_HEIGHT // 2
 
-        title = self.font_title.render("SYSTEM CRASH", True, theme.NEON_MAGENTA)
+        title = self.font_title.render("CORE DUMPED", True, theme.NEON_MAGENTA)
         cause = self.font_body.render(
-            f"Crash cause: {player.crash_cause or 'unknown'}",
+            f"init(0) terminated — signal: {player.crash_cause or 'unknown'}",
             True,
             theme.TEXT_PRIMARY,
         )
@@ -612,7 +618,7 @@ class UIManager:
             theme.TEXT_PRIMARY,
         )
         prompt = self.font_body.render(
-            "Enter process name and press [ENTER]:", True, theme.NEON_CYAN
+            "init(0) needs a handle — type and press [ENTER]:", True, theme.NEON_CYAN
         )
         name_text = self.font_title.render(name_buffer + "_", True, theme.NEON_GREEN)
 
@@ -778,6 +784,123 @@ class UIManager:
             theme.TEXT_DIM,
         )
         self.screen.blit(hint, hint.get_rect(center=(cx, WINDOW_HEIGHT - 40)))
+
+    # ----- Phase 7 narrative screens -----
+
+    def render_cinematic(self, player: CinematicPlayer) -> None:
+        """Render the active intro/ending cutscene frame."""
+        render_cinematic(
+            self.screen,
+            player,
+            font_title=self.font_title,
+            font_body=self.font_body,
+            font_small=self.font_small,
+        )
+
+    def render_codex(
+        self,
+        rows: list[tuple[str, str, bool]],
+        selected: int,
+        body: str | None,
+    ) -> None:
+        """Codex screen — left list of entries, right pane for selected body.
+
+        Each row is ``(key, title, unlocked)``; locked rows show ``???``.
+        """
+        self.clear()
+        cx = WINDOW_WIDTH // 2
+        title = self.font_title.render("CODEX", True, theme.NEON_CYAN)
+        self.screen.blit(title, title.get_rect(center=(cx, 60)))
+
+        list_x = 80
+        list_top = 130
+        list_w = 360
+        for i, (_key, label, unlocked) in enumerate(rows):
+            is_sel = i == selected
+            if not unlocked:
+                color = theme.TEXT_DIM
+                text = "???"
+            else:
+                color = theme.NEON_CYAN if is_sel else theme.TEXT_PRIMARY
+                text = label
+            prefix = "▶ " if is_sel else "  "
+            self._blit_text(
+                f"{prefix}{text[:42]}", (list_x, list_top + i * 26), color, self.font_body
+            )
+
+        body_x = list_x + list_w + 32
+        body_w = WINDOW_WIDTH - body_x - 80
+        pane_rect = pygame.Rect(
+            body_x - 16, list_top - 16, body_w + 32, WINDOW_HEIGHT - list_top - 80
+        )
+        glass = pygame.Surface(pane_rect.size, pygame.SRCALPHA)
+        glass.fill((*theme.PANEL_BG, 200))
+        self.screen.blit(glass, pane_rect.topleft)
+        pygame.draw.rect(self.screen, theme.NEON_CYAN, pane_rect, width=1, border_radius=8)
+
+        if body:
+            y = pane_rect.y + 20
+            for paragraph in body.split("\n"):
+                # Word-wrap each paragraph.
+                words = paragraph.split(" ") if paragraph else [""]
+                line = ""
+                for w in words:
+                    candidate = (line + " " + w).strip() if line else w
+                    if self.font_body.size(candidate)[0] > body_w - 16:
+                        self._blit_text(line, (body_x, y), theme.TEXT_PRIMARY, self.font_body)
+                        y += 24
+                        line = w
+                    else:
+                        line = candidate
+                if line:
+                    self._blit_text(line, (body_x, y), theme.TEXT_PRIMARY, self.font_body)
+                    y += 24
+                y += 8
+        else:
+            self._blit_text(
+                "Locked. Discover this entry by playing.",
+                (body_x, pane_rect.y + 20),
+                theme.TEXT_DIM,
+                self.font_body,
+            )
+
+        hint = self.font_small.render(
+            "[↑/↓] navigate    [esc] back",
+            True,
+            theme.TEXT_DIM,
+        )
+        self.screen.blit(hint, hint.get_rect(center=(cx, WINDOW_HEIGHT - 40)))
+
+    def render_stack_trace(self, lines: list[tuple[str, str]], sector: int) -> None:
+        """Between-sector "stack trace" interstitial (7.4)."""
+        self.clear()
+        cx = WINDOW_WIDTH // 2
+        title = self.font_title.render(f"-- stack trace -- 0x{sector:02X}", True, theme.NEON_AMBER)
+        self.screen.blit(title, title.get_rect(center=(cx, 100)))
+
+        y = WINDOW_HEIGHT // 2 - len(lines) * 18
+        for speaker, body in lines:
+            speaker_color = {
+                "[KERNEL]": theme.NEON_CYAN,
+                "[init]": theme.NEON_GREEN,
+                "[THE_LEAK]": (255, 80, 200),
+                "[CRON]": theme.NEON_AMBER,
+                "[VENDOR]": theme.TEXT_PRIMARY,
+            }.get(speaker, theme.TEXT_PRIMARY)
+            speaker_surf = self.font_body.render(speaker, True, speaker_color)
+            body_surf = self.font_body.render(body, True, theme.TEXT_PRIMARY)
+            total_w = speaker_surf.get_width() + 12 + body_surf.get_width()
+            x0 = cx - total_w // 2
+            self.screen.blit(speaker_surf, (x0, y))
+            self.screen.blit(body_surf, (x0 + speaker_surf.get_width() + 12, y))
+            y += 32
+
+        hint = self.font_small.render(
+            "[ENTER] continue",
+            True,
+            theme.TEXT_DIM,
+        )
+        self.screen.blit(hint, hint.get_rect(center=(cx, WINDOW_HEIGHT - 80)))
 
     # ----- helpers -----
 

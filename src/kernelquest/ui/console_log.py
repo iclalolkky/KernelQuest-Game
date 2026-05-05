@@ -54,6 +54,31 @@ class ConsoleLog:
     def crit(self, message: str) -> None:
         self.push(LogLevel.CRIT, message)
 
+    # ----- Phase 7 — named voice helpers -----
+
+    def voice(self, speaker: str, message: str, level: LogLevel = LogLevel.INFO) -> None:
+        """Push a message tagged with an in-world speaker (e.g. ``KERNEL``).
+
+        The speaker tag is preserved verbatim (case-sensitive) so lower-case
+        voices like ``init`` render distinctly from upper-case system voices.
+        """
+        self.push(level, f"[{speaker.strip()}] {message}")
+
+    def kernel(self, message: str, level: LogLevel = LogLevel.INFO) -> None:
+        self.voice("KERNEL", message, level)
+
+    def init(self, message: str, level: LogLevel = LogLevel.INFO) -> None:
+        self.voice("init", message, level)
+
+    def leak(self, message: str, level: LogLevel = LogLevel.CRIT) -> None:
+        self.voice("THE_LEAK", message, level)
+
+    def vendor(self, message: str, level: LogLevel = LogLevel.INFO) -> None:
+        self.voice("VENDOR", message, level)
+
+    def cron(self, message: str, level: LogLevel = LogLevel.INFO) -> None:
+        self.voice("CRON", message, level)
+
     def entries(self) -> list[LogEntry]:
         return list(self._entries)
 

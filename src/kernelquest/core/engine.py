@@ -31,9 +31,21 @@ from kernelquest.core.config import (
 from kernelquest.core.settings import Settings
 from kernelquest.core.state import GameState
 from kernelquest.data.database import Database
+from kernelquest.data.lore_catalog import (
+    CATALOG as LORE_CATALOG,
+)
+from kernelquest.data.lore_catalog import (
+    ENDING_FRAMES,
+    INTRO_FRAMES,
+    STACK_TRACE_LINES,
+)
+from kernelquest.data.lore_catalog import (
+    for_condition as lore_for_condition,
+)
 from kernelquest.data.repositories import (
     DaemonRepository,
     DailyRunRepository,
+    LoreRepository,
     MetaRepository,
     RunRepository,
     ScoreRepository,
@@ -48,7 +60,7 @@ from kernelquest.entities.daemon import (
     get_daemon,
     starter_daemon,
 )
-from kernelquest.entities.malware import Malware, SegFault, ZombieProcess
+from kernelquest.entities.malware import KernelPanic, Malware, SegFault, ZombieProcess
 from kernelquest.entities.patch import CATALOG as PATCH_CATALOG
 from kernelquest.entities.patch import Patch, PatchEffects, PatchState
 from kernelquest.entities.player import Player
@@ -68,10 +80,12 @@ from kernelquest.systems.inventory import pickup_item_at, use_cache_slot
 from kernelquest.systems.programs import execute_program
 from kernelquest.ui import theme
 from kernelquest.ui import themes as themes_mod
-from kernelquest.ui.console_log import ConsoleLog
+from kernelquest.ui.cinematics import CinematicPlayer
+from kernelquest.ui.console_log import ConsoleLog, LogLevel
 from kernelquest.ui.fx import FloatingTextSystem, ParticleSystem, ScreenShake
 from kernelquest.ui.renderer import UIManager
 from kernelquest.ui.sfx import SoundManager
+from kernelquest.ui.sprites import get_player_palette
 from kernelquest.ui.viewport import Viewport
 from kernelquest.world.daily import today_iso, today_seed
 from kernelquest.world.generator import generate_world
@@ -87,6 +101,7 @@ _MENU_OPTIONS: tuple[str, ...] = (
     "Daily Run",
     "Tutorial",
     "How to Play",
+    "Codex",
     "High Scores",
     "Daily Board",
     "Stats",
@@ -121,6 +136,7 @@ class GameEngine:
         self._upgrades: UpgradeRepository | None = None
         self._daemons_repo: DaemonRepository | None = None
         self._daily_repo: DailyRunRepository | None = None
+        self._lore_repo: LoreRepository | None = None
 
         self._state: GameState = GameState.MENU
         self._seed_override = seed
@@ -155,6 +171,16 @@ class GameEngine:
         self._howtoplay_scroll: int = 0
         self._tutorial_step: int = 0
         self._is_tutorial_run: bool = False
+        # Phase 7 — narrative state.
+        self._cinematic: CinematicPlayer | None = None
+        self._cinematic_kind: str = ""  # "intro" | "ending"
+        self._codex_index: int = 0
+        self._stack_trace_lines: list[tuple[str, str]] = []
+        self._first_kill_pending: bool = True
+        self._first_pickup_pending: bool = True
+        self._first_descent_pending: bool = True
+        self._first_boss_pending: bool = True
+        self._first_crash_pending: bool = True
 
     # ----- public entry point -----
 
@@ -167,6 +193,7 @@ class GameEngine:
         self._upgrades = UpgradeRepository(self._database)
         self._daemons_repo = DaemonRepository(self._database)
         self._daily_repo = DailyRunRepository(self._database)
+        self._lore_repo = LoreRepository(self._database)
         self._settings = settings_module.load(self._meta)
         # Grant the starter daemon on the very first launch.
         if not self._daemons_repo.owned():
@@ -195,9 +222,17 @@ class GameEngine:
             self._sfx.start_music("main")
             clock = pygame.time.Clock()
 
-            # First-launch onboarding nudge.
+            # Apply persisted player palette to the renderer.
+            ui.player_palette = get_player_palette(self._settings.player_palette)
+
+            assert self._meta is not None
+            # Phase 7 — first-launch intro cutscene (replaces text "first boot").
+            if not settings_module.is_intro_seen(self._meta):
+                self._start_intro()
+
+            # First-launch onboarding nudge (after intro auto-skips).
             if not settings_module.is_tutorial_done(self._meta):
-                self._console.info("Hint: try the Tutorial from the main menu!")
+                self._console.cron("try the Tutorial from the main menu.")
 
             while self._state is not GameState.QUIT:
                 dt = clock.tick(FPS) / 1000.0
@@ -225,6 +260,10 @@ class GameEngine:
             self._boss_banner_ttl = max(0.0, self._boss_banner_ttl - dt)
         if self._glitch_intensity > 0.0:
             self._glitch_intensity = max(0.0, self._glitch_intensity - dt * 0.4)
+        if self._cinematic is not None and self._state in (GameState.INTRO, GameState.ENDING):
+            self._cinematic.step(dt)
+            if self._cinematic.finished:
+                self._end_cinematic()
 
     def _handle_events(self) -> None:
         for event in pygame.event.get():
@@ -267,6 +306,12 @@ class GameEngine:
                 self._handle_settings_key(event)
             elif self._state is GameState.PATCH_PICK:
                 self._handle_patch_pick_key(event)
+            elif self._state in (GameState.INTRO, GameState.ENDING):
+                self._handle_cinematic_key(event)
+            elif self._state is GameState.CODEX:
+                self._handle_codex_key(event)
+            elif self._state is GameState.STACK_TRACE:
+                self._handle_stack_trace_key(event)
 
     def _apply_display_mode(self) -> None:
         flags = pygame.FULLSCREEN if self._settings.fullscreen else 0
@@ -298,6 +343,8 @@ class GameEngine:
             self._start_tutorial()
         elif choice == "How to Play":
             self._open_howtoplay()
+        elif choice == "Codex":
+            self._open_codex()
         elif choice == "High Scores":
             self._state = GameState.HIGH_SCORES
         elif choice == "Daily Board":
@@ -362,6 +409,8 @@ class GameEngine:
         "reduce_motion",
         "crt",
         "large_text",
+        "palette",
+        "auto_skip_intro",
     )
 
     def _adjust_setting(self, direction: int) -> None:
@@ -393,6 +442,12 @@ class GameEngine:
             self._settings.toggle_crt()
         elif key == "large_text":
             self._settings.toggle_large_text()
+        elif key == "palette":
+            self._settings.cycle_palette(direction)
+            if self._ui is not None:
+                self._ui.player_palette = get_player_palette(self._settings.player_palette)
+        elif key == "auto_skip_intro":
+            self._settings.toggle_auto_skip_intro()
 
     def _cycle_theme(self, direction: int) -> None:
         from kernelquest.ui import themes as themes_mod
@@ -411,7 +466,7 @@ class GameEngine:
 
         if event.key == pygame.K_ESCAPE:
             if player.crash_cause is None:
-                player.crash_cause = "Manual shutdown"
+                player.crash_cause = "SIGINT — manual exit"
             self._enter_game_over()
             return
 
@@ -564,6 +619,14 @@ class GameEngine:
                 [(p.label, p.description) for p in self._patch_choices],
                 self._patch_pick_index,
             )
+        elif self._state in (GameState.INTRO, GameState.ENDING):
+            if self._cinematic is not None:
+                ui.render_cinematic(self._cinematic)
+        elif self._state is GameState.CODEX:
+            ui.render_codex(*self._codex_view())
+        elif self._state is GameState.STACK_TRACE:
+            depth = self._world.player.depth_reached if self._world is not None else 0
+            ui.render_stack_trace(self._stack_trace_lines, depth)
         ui.present()
 
     # ----- transitions -----
@@ -612,8 +675,8 @@ class GameEngine:
         self._name_buffer = ""
         self._console.clear()
         prefix = "DAILY " if daily else ""
-        self._console.info(
-            f"{prefix}Process spawned in sector 0x{player.depth_reached:02X} (seed={seed})"
+        self._console.kernel(
+            f"{prefix}init(0) spawned in sector 0x{player.depth_reached:02X} (seed={seed})"
         )
         self._particles.clear()
         if self._sfx is not None:
@@ -685,6 +748,13 @@ class GameEngine:
         self._shake.punch(SCREEN_SHAKE_KILL_INTENSITY)
         self._world.remove_dead_enemies()
         self._play_sfx("explode")
+        # Phase 7 lore unlocks.
+        if self._first_kill_pending:
+            self._first_kill_pending = False
+            self._unlock_lore_for("first_kill")
+        if getattr(enemy, "is_boss", False) and self._first_boss_pending:
+            self._first_boss_pending = False
+            self._unlock_lore_for("first_boss")
         # Score with combo + patch multipliers.
         patch_effects = self._patches.effects()
         base = enemy.score_value
@@ -704,9 +774,14 @@ class GameEngine:
         if getattr(enemy, "is_boss", False) and not self._world.has_living_boss:
             self._boss_active = False
             self._glitch_intensity = 0.0
-            self._console.info("BOSS terminated. Exit unlocked.")
+            self._console.kernel("BOSS terminated. EXIT unlocked.")
             if self._sfx is not None:
                 self._sfx.start_music("main")
+            # Phase 7 — true-ending trigger (placeholder hook; Phase 11 will
+            # gate this on full run success criteria).
+            if isinstance(enemy, KernelPanic):
+                self._unlock_lore_for("true_ending")
+                self._start_ending()
 
     def _maybe_award_daemon(self, *, force: bool = False) -> None:
         if self._daemons_repo is None:
@@ -733,6 +808,9 @@ class GameEngine:
             patch_effects = self._patches.effects()
             self._console.info(message)
             self._play_sfx("pickup")
+            if self._first_pickup_pending:
+                self._first_pickup_pending = False
+                self._unlock_lore_for("first_pickup")
             bonus_score = daemon_on_pickup(self._world)
             if bonus_score > 0:
                 player.score += bonus_score
@@ -769,7 +847,7 @@ class GameEngine:
             if self._world.has_living_boss:
                 boss = self._world.living_boss()
                 label = boss.crash_label if boss is not None else "BOSS"
-                self._console.crit(f"EXIT LOCKED — terminate {label} first.")
+                self._console.kernel(f"EXIT LOCKED — terminate {label} first.", LogLevel.CRIT)
                 self._glitch_intensity = max(self._glitch_intensity, 0.6)
             else:
                 self._descend()
@@ -826,8 +904,18 @@ class GameEngine:
         player = self._world.player
         player.depth_reached += 1
         player.score += SCORE_PER_DESCENT
-        self._console.info(f"Descending to sector 0x{player.depth_reached:02X}")
+        self._console.kernel(f"sector 0x{player.depth_reached:02X} mapped.")
         self._play_sfx("descend")
+        # Phase 7 — fire depth-gated lore unlocks.
+        if self._first_descent_pending and player.depth_reached >= 2:
+            self._first_descent_pending = False
+            self._unlock_lore_for("first_descent")
+        if player.depth_reached >= 5:
+            self._unlock_lore_for("sector_5")
+        if player.depth_reached >= 10:
+            self._unlock_lore_for("sector_10")
+        if player.depth_reached >= 15:
+            self._unlock_lore_for("sector_15")
         patch_effects = self._patches.effects()
         self._world = generate_world(
             player=player,
@@ -840,9 +928,8 @@ class GameEngine:
         self._floats.clear()
         player.end_turn()
         self._refresh_boss_state()
-        # Offer 3 random patches every odd-depth descent (skip depth 1).
-        if player.depth_reached >= 2:
-            self._open_patch_picker()
+        # Stack-trace interstitial precedes the patch picker (Phase 7.4).
+        self._open_stack_trace()
 
     def _refresh_boss_state(self) -> None:
         if self._world is None:
@@ -858,7 +945,7 @@ class GameEngine:
             if self._sfx is not None:
                 self._sfx.start_music("boss")
             label = boss.crash_label if boss is not None else "BOSS"
-            self._console.crit(f"!! BOSS PROCESS LOADED: {label} !!")
+            self._console.kernel(f"!! BOSS PROCESS LOADED: {label} !!", LogLevel.CRIT)
         elif not self._boss_active and was_active:
             if self._sfx is not None:
                 self._sfx.start_music("main")
@@ -874,8 +961,15 @@ class GameEngine:
         assert self._world is not None
         if self._world.player.crash_cause is None:
             self._world.player.crash_cause = "Out of RAM"
-        self._console.crit(f"SYSTEM CRASH — {self._world.player.crash_cause}")
+        cause = self._world.player.crash_cause
+        self._console.crit(f"[init] core dumped — signal: {cause}")
         self._play_sfx("crash")
+        # Phase 7 lore unlocks.
+        if self._first_crash_pending:
+            self._first_crash_pending = False
+            self._unlock_lore_for("first_crash")
+        # Crash-cause-specific lore (e.g. ``cause_Logic Bomb``).
+        self._unlock_lore_for(f"cause_{cause}")
         self._state = GameState.GAME_OVER
 
     def _save_run(self) -> None:
@@ -985,6 +1079,8 @@ class GameEngine:
             ("Reduce Motion", "ON" if s.reduce_motion else "OFF"),
             ("CRT Effect", "ON" if s.crt_effect else "OFF"),
             ("Large Text", "ON" if s.large_text else "OFF"),
+            ("Player Palette", s.player_palette),
+            ("Auto-skip Intro", "ON" if s.auto_skip_intro else "OFF"),
         ]
 
     def _fetch_high_scores(self) -> list[tuple[str, int, int, str, str]]:
@@ -1095,6 +1191,114 @@ class GameEngine:
             self._howtoplay_scroll = min(
                 max(0, len(self._howtoplay_lines) - 8), self._howtoplay_scroll + 10
             )
+
+    # ----- Phase 7 narrative plumbing -----
+
+    def _unlock_lore_for(self, condition: str) -> None:
+        """If ``condition`` matches a `LoreEntry`, mark it unlocked and toast.
+
+        Idempotent — repeat calls only log on the very first unlock.
+        """
+        if self._lore_repo is None:
+            return
+        entry = lore_for_condition(condition)
+        if entry is None:
+            return
+        if self._lore_repo.unlock(entry.key):
+            self._console.kernel(f"codex unlocked — {entry.title}")
+
+    def _start_intro(self) -> None:
+        if (
+            self._meta is not None
+            and self._settings.auto_skip_intro
+            and (settings_module.is_intro_seen(self._meta))
+        ):
+            return
+        self._cinematic = CinematicPlayer(frames=INTRO_FRAMES)
+        self._cinematic.start()
+        self._cinematic_kind = "intro"
+        self._unlock_lore_for("first_boot")
+        self._state = GameState.INTRO
+
+    def _start_ending(self) -> None:
+        self._cinematic = CinematicPlayer(frames=ENDING_FRAMES)
+        self._cinematic.start()
+        self._cinematic_kind = "ending"
+        self._state = GameState.ENDING
+
+    def _end_cinematic(self) -> None:
+        was_intro = self._cinematic_kind == "intro"
+        self._cinematic = None
+        self._cinematic_kind = ""
+        if was_intro and self._meta is not None:
+            settings_module.mark_intro_seen(self._meta)
+        # After the ending we still send the player to game-over for naming.
+        if self._state is GameState.ENDING and self._world is not None:
+            if self._world.player.crash_cause is None:
+                self._world.player.crash_cause = "TRUE ENDING"
+            self._state = GameState.GAME_OVER
+        else:
+            self._state = GameState.MENU
+
+    def _handle_cinematic_key(self, event: pygame.event.Event) -> None:
+        if self._cinematic is None:
+            self._end_cinematic()
+            return
+        if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
+            self._cinematic.skip()
+            if self._cinematic.finished:
+                self._end_cinematic()
+        elif event.key == pygame.K_ESCAPE:
+            self._cinematic.skip_all()
+            self._end_cinematic()
+
+    # ----- Codex -----
+
+    def _open_codex(self) -> None:
+        self._codex_index = 0
+        self._state = GameState.CODEX
+
+    def _codex_view(self) -> tuple[list[tuple[str, str, bool]], int, str | None]:
+        unlocked = self._lore_repo.unlocked_keys() if self._lore_repo else set()
+        rows = [(entry.key, entry.title, entry.key in unlocked) for entry in LORE_CATALOG]
+        idx = max(0, min(self._codex_index, len(rows) - 1))
+        body: str | None = None
+        if rows and rows[idx][2]:
+            body = LORE_CATALOG[idx].body
+        return rows, idx, body
+
+    def _handle_codex_key(self, event: pygame.event.Event) -> None:
+        n = len(LORE_CATALOG)
+        if event.key in (pygame.K_ESCAPE, pygame.K_BACKSPACE):
+            self._state = GameState.MENU
+        elif event.key in (pygame.K_UP, pygame.K_w):
+            self._codex_index = (self._codex_index - 1) % n
+        elif event.key in (pygame.K_DOWN, pygame.K_s):
+            self._codex_index = (self._codex_index + 1) % n
+
+    # ----- Stack-trace interstitial -----
+
+    def _open_stack_trace(self) -> None:
+        # 2 deterministic-but-varied lines: one [KERNEL] line + one rotating voice.
+        idx = self._rng.randrange(len(STACK_TRACE_LINES))
+        primary = STACK_TRACE_LINES[idx]
+        secondary = STACK_TRACE_LINES[(idx + 1) % len(STACK_TRACE_LINES)]
+        self._stack_trace_lines = [primary, secondary]
+        self._state = GameState.STACK_TRACE
+
+    def _handle_stack_trace_key(self, event: pygame.event.Event) -> None:
+        if event.key in (
+            pygame.K_RETURN,
+            pygame.K_KP_ENTER,
+            pygame.K_SPACE,
+            pygame.K_ESCAPE,
+        ):
+            assert self._world is not None
+            # Continue into the patch picker (depth >= 2 only).
+            if self._world.player.depth_reached >= 2:
+                self._open_patch_picker()
+            else:
+                self._state = GameState.PLAYING
 
 
 def _key_to_delta(key: int) -> tuple[int, int] | None:
