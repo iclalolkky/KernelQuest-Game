@@ -99,15 +99,27 @@ class RunRepository:
         total_score: int,
         crash_cause: str,
         duration_ms: int,
+        distro_key: str | None = None,
+        is_successful: bool = False,
     ) -> int:
         with self._db.connection:
             cursor = self._db.connection.execute(
                 """
                 INSERT INTO runs
-                    (player_name, seed, depth_reached, total_score, crash_cause, duration_ms)
-                VALUES (?, ?, ?, ?, ?, ?);
+                    (player_name, seed, depth_reached, total_score, crash_cause,
+                     duration_ms, distro_key, is_successful)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?);
                 """,
-                (player_name, seed, depth_reached, total_score, crash_cause, duration_ms),
+                (
+                    player_name,
+                    seed,
+                    depth_reached,
+                    total_score,
+                    crash_cause,
+                    duration_ms,
+                    distro_key,
+                    1 if is_successful else 0,
+                ),
             )
         run_id = cursor.lastrowid
         if run_id is None:  # pragma: no cover
@@ -556,3 +568,125 @@ class CombatLogRepository:
         if row is None or row["total"] is None:
             return None
         return (row["program_key"], int(row["total"]))
+
+
+# ---------------------------------------------------------------------------
+# Phase 11 — distros, run milestones, skip tags
+# ---------------------------------------------------------------------------
+
+
+class DistroRepository:
+    """Per-key unlock state for the Distro selection screen."""
+
+    def __init__(self, database: Database) -> None:
+        self._db = database
+
+    def ensure_seeded(self, distro_keys: list[str], first_unlocked: str) -> None:
+        """Insert any missing distro rows; mark ``first_unlocked`` as unlocked."""
+        with self._db.connection:
+            for key in distro_keys:
+                self._db.connection.execute(
+                    "INSERT OR IGNORE INTO distros (key, name) VALUES (?, ?);",
+                    (key, key),
+                )
+            self._db.connection.execute(
+                "UPDATE distros SET unlocked_at = COALESCE(unlocked_at, CURRENT_TIMESTAMP)"
+                " WHERE key = ?;",
+                (first_unlocked,),
+            )
+
+    def is_unlocked(self, key: str) -> bool:
+        row = self._db.connection.execute(
+            "SELECT unlocked_at FROM distros WHERE key = ?;", (key,)
+        ).fetchone()
+        return bool(row and row["unlocked_at"])
+
+    def unlocked_keys(self) -> set[str]:
+        rows = self._db.connection.execute(
+            "SELECT key FROM distros WHERE unlocked_at IS NOT NULL;"
+        ).fetchall()
+        return {str(row["key"]) for row in rows}
+
+    def unlock(self, key: str) -> bool:
+        """Mark ``key`` as unlocked; returns True iff this transitioned 0→1."""
+        with self._db.connection:
+            cursor = self._db.connection.execute(
+                "UPDATE distros SET unlocked_at = CURRENT_TIMESTAMP"
+                " WHERE key = ? AND unlocked_at IS NULL;",
+                (key,),
+            )
+        return cursor.rowcount > 0
+
+
+class MilestoneRepository:
+    """Persists per-milestone results from a finished run."""
+
+    def __init__(self, database: Database) -> None:
+        self._db = database
+
+    def insert_many(
+        self,
+        run_id: int,
+        rows: list[tuple[int, int, str, int, int, bool, bool]],
+    ) -> None:
+        """``rows`` = (release_index, milestone_index, kind, target, reached, skipped, cleared)."""
+        if not rows:
+            return
+        with self._db.connection:
+            self._db.connection.executemany(
+                "INSERT INTO run_milestones"
+                " (run_id, release_index, milestone_index, kind, target_score,"
+                "  reached_score, was_skipped, was_cleared)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?);",
+                [
+                    (
+                        run_id,
+                        release_index,
+                        milestone_index,
+                        kind,
+                        target,
+                        reached,
+                        1 if skipped else 0,
+                        1 if cleared else 0,
+                    )
+                    for (
+                        release_index,
+                        milestone_index,
+                        kind,
+                        target,
+                        reached,
+                        skipped,
+                        cleared,
+                    ) in rows
+                ],
+            )
+
+    def for_run(self, run_id: int) -> list[dict[str, object]]:
+        rows = self._db.connection.execute(
+            "SELECT release_index, milestone_index, kind, target_score, reached_score,"
+            " was_skipped, was_cleared FROM run_milestones WHERE run_id = ?"
+            " ORDER BY release_index, milestone_index;",
+            (run_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+class SkipTagRepository:
+    """Persists Skip Tags awarded during a run."""
+
+    def __init__(self, database: Database) -> None:
+        self._db = database
+
+    def insert(self, run_id: int, tag_key: str, used: bool) -> None:
+        with self._db.connection:
+            self._db.connection.execute(
+                "INSERT INTO skip_tags (run_id, tag_key, used) VALUES (?, ?, ?);",
+                (run_id, tag_key, 1 if used else 0),
+            )
+
+    def for_run(self, run_id: int) -> list[tuple[str, bool]]:
+        rows = self._db.connection.execute(
+            "SELECT tag_key, used FROM skip_tags WHERE run_id = ?;",
+            (run_id,),
+        ).fetchall()
+        return [(str(row["tag_key"]), bool(row["used"])) for row in rows]

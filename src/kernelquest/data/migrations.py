@@ -147,4 +147,46 @@ MIGRATIONS: Final[list[tuple[str, str]]] = [
             ON combat_log (program_key, species_key);
         """,
     ),
+    (
+        "008_phase11_distros",
+        """
+        -- Phase 11 — distros (the player-facing decks).
+        CREATE TABLE IF NOT EXISTS distros (
+            key              TEXT PRIMARY KEY,
+            name             TEXT NOT NULL,
+            unlock_condition TEXT NOT NULL DEFAULT '',
+            unlocked_at      DATETIME,
+            description      TEXT NOT NULL DEFAULT ''
+        );
+
+        -- Per-milestone result rows for analytics + the run-summary screen.
+        CREATE TABLE IF NOT EXISTS run_milestones (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id          INTEGER NOT NULL,
+            release_index   INTEGER NOT NULL,
+            milestone_index INTEGER NOT NULL,
+            kind            TEXT    NOT NULL,
+            target_score    INTEGER NOT NULL,
+            reached_score   INTEGER NOT NULL,
+            was_skipped     INTEGER NOT NULL DEFAULT 0,
+            was_cleared     INTEGER NOT NULL DEFAULT 0,
+            timestamp       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_run_milestones_run
+            ON run_milestones (run_id);
+
+        -- One-shot skip tags awarded during a run.
+        CREATE TABLE IF NOT EXISTS skip_tags (
+            id      INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id  INTEGER NOT NULL,
+            tag_key TEXT    NOT NULL,
+            used    INTEGER NOT NULL DEFAULT 0
+        );
+
+        -- Tag the active distro on each run row (NULL for legacy rows).
+        ALTER TABLE runs ADD COLUMN distro_key TEXT;
+        ALTER TABLE runs ADD COLUMN is_successful INTEGER NOT NULL DEFAULT 0;
+        """,
+    ),
 ]

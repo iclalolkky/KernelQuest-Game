@@ -454,69 +454,69 @@ Each lesson is a short scripted scene with goals that auto-complete when the pla
 
 ---
 
-## Phase 11 — Distros & Structured Runs 💿
+## Phase 11 — Distros & Structured Runs 💿 ✅
 
 **Goal:** Replace "click New Run → drop in" with a *Balatro-style* meta loop: choose a **Distro** (themed starting build), play a structured ladder of objectives, hit a success bar, and only then advance meta-progression. Skipping objectives is allowed but costly.
 
 > **Naming.** A "deck" in our world is a **Distro** (Linux distro / OS image): a curated starting bundle of Programs, Daemons, starting stats, and a unique mechanic. The protagonist boots into the chosen Distro at the start of the run.
 
 ### 11.1 Run structure: Releases, Milestones, Sectors
-- [ ] A run is composed of **8 Releases** (≈ Balatro antes).
-- [ ] Each Release contains **3 Milestones** (Sector_A / Sector_B / Boss). Boss is mandatory; A and B are *Skippable*.
-- [ ] Each Milestone has a target score the player must hit before exiting the sector; failing the target ends the run.
-- [ ] Target score grows per Release on a tunable curve (`base × growth^release`).
+- [x] A run is composed of **8 Releases** (≈ Balatro antes).
+- [x] Each Release contains **3 Milestones** (Sector_A / Sector_B / Boss). Boss is mandatory; A and B are *Skippable*.
+- [x] Each Milestone has a target score the player must hit before exiting the sector; failing the target ends the run.
+- [x] Target score grows per Release on a tunable curve (`base × growth^release`).
 
 ### 11.2 Skip mechanic
-- [ ] Player may **skip** a non-boss Milestone from a between-sector screen.
-- [ ] Skipping awards a **Skip Tag** (a one-time consumable modifier: e.g. "Next shop is free", "+1 Daemon slot for next sector", "Double bits next milestone").
-- [ ] Skipping forfeits that Milestone's score, shop, and loot — creating real opportunity cost for builds that depend on shop access.
-- [ ] HUD visualizes the Release ladder (3 milestones × 8 releases) with current position, skip/play state, and target score.
+- [x] Player may **skip** a non-boss Milestone from a between-sector screen.
+- [x] Skipping awards a **Skip Tag** (a one-time consumable modifier: e.g. "Next shop is free", "+1 Daemon slot for next sector", "Double bits next milestone").
+- [x] Skipping forfeits that Milestone's score, shop, and loot — creating real opportunity cost for builds that depend on shop access.
+- [x] HUD visualizes the Release ladder (3 milestones × 8 releases) with current position, skip/play state, and target score.
 
 ### 11.3 Vendor (between-Milestone shop)
-- [ ] After every *played* Milestone, open the **Vendor** screen (in-run, not the meta shop).
-- [ ] Stock: Programs, Daemons, Patches, single-use Consumables, Reroll button, Skip Tag exchange.
-- [ ] Currency: in-run `bits`; carry-over to meta `bits` only on successful run.
-- [ ] Vendor stock biased by current Distro tags (a `signal`-themed Distro is more likely to roll `signal` Daemons).
+- [x] After every *played* Milestone, open the **Vendor** screen (in-run, not the meta shop).
+- [x] Stock: Programs, Daemons, Patches, single-use Consumables, Reroll button, Skip Tag exchange.
+- [x] Currency: in-run `bits`; carry-over to meta `bits` only on successful run.
+- [x] Vendor stock biased by current Distro tags (a `signal`-themed Distro is more likely to roll `signal` Daemons).
 
 ### 11.4 Distros (the "decks")
-- [ ] `distros` table (`key`, `name`, `unlock_condition`, `unlocked_at`, `description`).
-- [ ] Distro selection screen replaces the current "New Run" button: card-like grid of Distros with stats preview, locked Distros shown as `???` with their unlock hint.
-- [ ] **Sequential unlocks**: each Distro unlocks the next only after a *successful run* (see 11.6).
-- [ ] **Starter Distros** (target: 6, sequentially unlocked):
+- [x] `distros` table (`key`, `name`, `unlock_condition`, `unlocked_at`, `description`).
+- [x] Distro selection screen replaces the current "New Run" button: card-like grid of Distros with stats preview, locked Distros shown as `???` with their unlock hint.
+- [x] **Sequential unlocks**: each Distro unlocks the next only after a *successful run* (see 11.6).
+- [x] **Starter Distros** (target: 6, sequentially unlocked):
   1. **`Vanilla`** — baseline starting kit; no bonuses, no penalties.
   2. **`Minimal`** — fewer cycles, but +50% bits from kills.
   3. **`Hardened`** — +20 starting RAM, programs cost +1 cycle.
   4. **`Realtime`** — enemies always act first, but player gets +1 free move every 5 turns.
   5. **`Bleeding-Edge`** — start with 2 random Daemons but RAM regen disabled.
   6. **`Recovery`** — built around `init(0)` lore; starts with the `cron` daemon and a unique Program `restore --from-snapshot`.
-- [ ] Each Distro defines: starting Programs/Daemons, starting stats, vendor weighting, one *signature* unique mechanic (its "joker").
+- [x] Each Distro defines: starting Programs/Daemons, starting stats, vendor weighting, one *signature* unique mechanic (its "joker").
 
 ### 11.5 New Run flow
-- [ ] `New Run` opens **Distro Select** → **Seed (random or daily)** → **Confirm Boot** → run starts.
-- [ ] Selected Distro is displayed in the HUD's Run Info card and persisted to the `runs` row.
+- [x] `New Run` opens **Distro Select** → **Seed (random or daily)** → **Confirm Boot** → run starts.
+- [x] Selected Distro is displayed in the HUD's Run Info card and persisted to the `runs` row.
 
 ### 11.6 Run success criteria & meta gating
-- [ ] A run is **successful** iff the player clears all 8 Releases (Milestone 8.3 boss defeated) without crashing.
-- [ ] **Meta-progression rules (strict):**
+- [x] A run is **successful** iff the player clears all 8 Releases (Milestone 8.3 boss defeated) without crashing.
+- [x] **Meta-progression rules (strict):**
   - Failed run → no `bits` carried to meta shop, no Distro unlocks, no skin unlocks. Run is still recorded in `runs` for stats.
   - Successful run → meta `bits` granted, next Distro in the chain unlocks, lore entry awarded, optional cosmetic unlock.
-- [ ] Existing meta shop (Phase 4.3) continues to work but only receives currency from successful runs.
-- [ ] One-time migration: existing `bits` are preserved (no rug-pull), but documented in `CHANGELOG.md`.
+- [x] Existing meta shop (Phase 4.3) continues to work but only receives currency from successful runs.
+- [x] One-time migration: existing `bits` are preserved (no rug-pull), but documented in `CHANGELOG.md`.
 
 ### 11.7 UI for the loop
-- [ ] **Release ladder** widget on the run-info card.
-- [ ] **Milestone results** screen between sectors: shows score vs. target, bits earned, lore beat, and the Skip / Continue choice.
-- [ ] **Run summary** screen on win or loss: full ladder recap, biggest combo, best matchup (Phase 8.5), Distro unlocked, lore entries unlocked.
+- [x] **Release ladder** widget on the run-info card.
+- [x] **Milestone results** screen between sectors: shows score vs. target, bits earned, lore beat, and the Skip / Continue choice.
+- [x] **Run summary** screen on win or loss: full ladder recap, biggest combo, best matchup (Phase 8.5), Distro unlocked, lore entries unlocked.
 
 ### 11.8 Tests
-- [ ] Score-target curve unit tests.
-- [ ] Skip mechanic: skipping a milestone forfeits its score/shop and grants a Skip Tag.
-- [ ] Meta gating: failed run → meta `bits` delta == 0 and no Distro unlock side effects; successful run → exactly one new Distro unlocked.
-- [ ] Distro registry test: every Distro defines required fields and references valid Programs/Daemons.
+- [x] Score-target curve unit tests.
+- [x] Skip mechanic: skipping a milestone forfeits its score/shop and grants a Skip Tag.
+- [x] Meta gating: failed run → meta `bits` delta == 0 and no Distro unlock side effects; successful run → exactly one new Distro unlocked.
+- [x] Distro registry test: every Distro defines required fields and references valid Programs/Daemons.
 
 ### 11.9 Documentation
-- [ ] Update `HOWTOPLAY.md` with Distro selection, Release ladder, skip mechanics, success criteria.
-- [ ] Update `docs/PRD_AND_ARCH.md` with the new tables (`distros`, `release_progress`, optional `skip_tags`) and the meta-gating rule.
+- [x] Update `HOWTOPLAY.md` with Distro selection, Release ladder, skip mechanics, success criteria.
+- [x] Update `docs/PRD_AND_ARCH.md` with the new tables (`distros`, `release_progress`, optional `skip_tags`) and the meta-gating rule.
 
 **Exit criteria:** Clicking "New Run" never drops the player straight into a sector — they pick a Distro first; the run is structured into a visible 8×3 ladder; meta-progression only advances on a successful run; at least 6 Distros exist and unlock sequentially.
 

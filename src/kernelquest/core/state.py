@@ -29,4 +29,9 @@ class GameState(Enum):
     INSPECT = auto()
     # Phase 10 — interactive tutorial range.
     TUTORIAL_RANGE = auto()
+    # Phase 11 — distros & structured runs.
+    DISTRO_SELECT = auto()
+    VENDOR = auto()
+    MILESTONE_RESULT = auto()
+    RUN_SUMMARY = auto()
     QUIT = auto()

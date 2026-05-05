@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import random
+from typing import cast
 
 import pygame
 
@@ -1138,6 +1139,164 @@ class UIManager:
         for text, color in lines:
             self._blit_text(text, (rect.x + 10, cy), color, self.font_small)
             cy += 22
+
+    def render_distro_select(
+        self,
+        rows: list[dict[str, object]],
+        selected: int,
+        daily: bool,
+    ) -> None:
+        from kernelquest.ui.i18n import t
+
+        self.clear()
+        cx = WINDOW_WIDTH // 2
+        title_key = "distro.title_daily" if daily else "distro.title"
+        title = self.font_title.render(t(title_key), True, theme.NEON_CYAN)
+        self.screen.blit(title, title.get_rect(center=(cx, 70)))
+
+        x = cx - 380
+        y = 140
+        for i, row in enumerate(rows):
+            is_sel = i == selected
+            unlocked = bool(row.get("unlocked"))
+            color = (
+                theme.NEON_CYAN
+                if is_sel and unlocked
+                else (theme.TEXT_PRIMARY if unlocked else theme.TEXT_DIM)
+            )
+            prefix = "▶ " if is_sel else "  "
+            name = str(row.get("name", "?"))
+            line = f"{prefix}{name}"
+            if not unlocked:
+                line += f"   [{t('distro.locked')}]"
+            self._blit_text(line, (x, y), color, self.font_body)
+            sub_color = theme.TEXT_DIM if not is_sel else theme.NEON_GREEN
+            self._blit_text(
+                str(row.get("description", "")),
+                (x + 24, y + 22),
+                sub_color,
+                self.font_small,
+            )
+            if not unlocked:
+                self._blit_text(
+                    str(row.get("unlock_hint", "")),
+                    (x + 24, y + 40),
+                    theme.NEON_AMBER,
+                    self.font_small,
+                )
+            y += 70
+
+        hint = self.font_small.render(t("distro.hint"), True, theme.TEXT_DIM)
+        self.screen.blit(hint, hint.get_rect(center=(cx, WINDOW_HEIGHT - 40)))
+
+    def render_milestone_result(self, panel: dict[str, object]) -> None:
+        from kernelquest.ui.i18n import t
+
+        self.clear()
+        cx = WINDOW_WIDTH // 2
+        cy = WINDOW_HEIGHT // 2
+        title = self.font_title.render(t("milestone.title"), True, theme.NEON_GREEN)
+        self.screen.blit(title, title.get_rect(center=(cx, cy - 160)))
+
+        rel = cast(int, panel.get("release_index", 0)) + 1
+        ms = cast(int, panel.get("milestone_index", 0)) + 1
+        kind = str(panel.get("kind", ""))
+        score = cast(int, panel.get("score", 0))
+        target = cast(int, panel.get("target", 0))
+        bits = cast(int, panel.get("bits", 0))
+        cleared = bool(panel.get("cleared"))
+        is_boss = bool(panel.get("boss"))
+
+        lines = [
+            f"{t('milestone.release')}: {rel} / 8",
+            f"{t('milestone.milestone')}: {ms} / 3   ({kind})",
+            f"{t('milestone.score')}: {score} / {target}",
+            f"{t('milestone.bits')}: +{bits}",
+            t("milestone.cleared") if cleared else t("milestone.failed"),
+        ]
+        y = cy - 90
+        for line in lines:
+            surf = self.font_body.render(line, True, theme.TEXT_PRIMARY)
+            self.screen.blit(surf, surf.get_rect(center=(cx, y)))
+            y += 30
+
+        hint_key = "milestone.hint_boss" if is_boss else "milestone.hint"
+        hint = self.font_small.render(t(hint_key), True, theme.TEXT_DIM)
+        self.screen.blit(hint, hint.get_rect(center=(cx, WINDOW_HEIGHT - 50)))
+
+    def render_vendor(
+        self,
+        bits: int,
+        stock: list[dict[str, object]],
+        selected: int,
+        message: str | None,
+        free: bool,
+    ) -> None:
+        from kernelquest.ui.i18n import t
+
+        self.clear()
+        cx = WINDOW_WIDTH // 2
+        title = self.font_title.render(t("vendor.title"), True, theme.NEON_CYAN)
+        self.screen.blit(title, title.get_rect(center=(cx, 70)))
+
+        bits_label = t("vendor.bits", bits=bits) + (f"   [{t('vendor.free')}]" if free else "")
+        bits_surf = self.font_body.render(bits_label, True, theme.NEON_GREEN)
+        self.screen.blit(bits_surf, bits_surf.get_rect(center=(cx, 110)))
+
+        x = cx - 360
+        y = 160
+        for i, item in enumerate(stock):
+            is_sel = i == selected
+            color = theme.NEON_CYAN if is_sel else theme.TEXT_PRIMARY
+            prefix = "▶ " if is_sel else "  "
+            cost = 0 if free else cast(int, item.get("cost", 0))
+            label = str(item.get("label", "?"))
+            kind = str(item.get("kind", ""))
+            cost_text = f"{cost}b" if cost > 0 else t("vendor.free_cost")
+            line = f"{prefix}{label:<22} [{kind:<8}]   {cost_text}"
+            self._blit_text(line, (x, y), color, self.font_body)
+            desc = str(item.get("description", ""))
+            if desc:
+                self._blit_text(desc, (x + 24, y + 22), theme.TEXT_DIM, self.font_small)
+            y += 50
+
+        if message is not None:
+            msg = self.font_body.render(message, True, theme.NEON_AMBER)
+            self.screen.blit(msg, msg.get_rect(center=(cx, WINDOW_HEIGHT - 90)))
+
+        hint = self.font_small.render(t("vendor.hint"), True, theme.TEXT_DIM)
+        self.screen.blit(hint, hint.get_rect(center=(cx, WINDOW_HEIGHT - 40)))
+
+    def render_run_summary(self, payload: dict[str, object]) -> None:
+        from kernelquest.ui.i18n import t
+
+        self.clear()
+        cx = WINDOW_WIDTH // 2
+        cy = WINDOW_HEIGHT // 2
+        success = bool(payload.get("success"))
+        title_key = "summary.title_success" if success else "summary.title_failed"
+        color = theme.NEON_GREEN if success else theme.NEON_MAGENTA
+        title = self.font_title.render(t(title_key), True, color)
+        self.screen.blit(title, title.get_rect(center=(cx, cy - 140)))
+
+        lines = [
+            f"{t('summary.distro')}: {payload.get('distro', '?')}",
+            f"{t('summary.releases_cleared')}: {payload.get('releases_cleared', 0)} / 8",
+            f"{t('summary.score')}: {payload.get('score', 0)}",
+            f"{t('summary.bits_to_meta')}: +{payload.get('bits_to_meta', 0)}",
+        ]
+        unlocked = str(payload.get("unlocked_distro", ""))
+        if unlocked:
+            lines.append(f"{t('summary.unlocked')}: {unlocked}")
+
+        y = cy - 60
+        for line in lines:
+            surf = self.font_body.render(line, True, theme.TEXT_PRIMARY)
+            self.screen.blit(surf, surf.get_rect(center=(cx, y)))
+            y += 30
+
+        hint = self.font_small.render(t("summary.hint"), True, theme.TEXT_DIM)
+        self.screen.blit(hint, hint.get_rect(center=(cx, WINDOW_HEIGHT - 50)))
 
     def render_post_run_summary(
         self,

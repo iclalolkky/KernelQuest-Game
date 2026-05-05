@@ -33,6 +33,7 @@ _KEY_TUTORIAL_DONE = "meta.tutorial_done"
 _KEY_INTRO_SEEN = "meta.intro_seen"
 _KEY_AUTO_SKIP_INTRO = "settings.auto_skip_intro"
 _KEY_PLAYER_PALETTE = "settings.player_palette"
+_KEY_LANGUAGE = "settings.language"
 
 _DIFFICULTY_ORDER: tuple[Difficulty, ...] = (Difficulty.EASY, Difficulty.NORMAL, Difficulty.HARD)
 
@@ -55,6 +56,8 @@ class Settings:
     # Phase 7 — narrative & identity.
     auto_skip_intro: bool = False
     player_palette: str = "kernel"
+    # Phase 11 — localization.
+    language: str = "en"
 
     # ----- difficulty modifiers -----
 
@@ -119,6 +122,15 @@ class Settings:
         idx = (idx + direction) % len(keys)
         self.player_palette = keys[idx]
 
+    def cycle_language(self, direction: int = 1) -> None:
+        from kernelquest.ui import i18n
+
+        codes = list(i18n.SUPPORTED_LANGUAGES)
+        idx = codes.index(self.language) if self.language in codes else 0
+        idx = (idx + direction) % len(codes)
+        self.language = codes[idx]
+        i18n.set_language(self.language)
+
 
 def _bool(raw: str | None, default: bool) -> bool:
     if raw is None:
@@ -155,6 +167,7 @@ def load(meta: MetaRepository) -> Settings:
         large_text=_bool(meta.get(_KEY_LARGE_TEXT), False),
         auto_skip_intro=_bool(meta.get(_KEY_AUTO_SKIP_INTRO), False),
         player_palette=meta.get(_KEY_PLAYER_PALETTE) or "kernel",
+        language=(meta.get(_KEY_LANGUAGE) or "en"),
     )
 
 
@@ -172,6 +185,7 @@ def save(meta: MetaRepository, settings: Settings) -> None:
     meta.set(_KEY_LARGE_TEXT, "1" if settings.large_text else "0")
     meta.set(_KEY_AUTO_SKIP_INTRO, "1" if settings.auto_skip_intro else "0")
     meta.set(_KEY_PLAYER_PALETTE, settings.player_palette)
+    meta.set(_KEY_LANGUAGE, settings.language)
 
 
 def is_tutorial_done(meta: MetaRepository) -> bool:

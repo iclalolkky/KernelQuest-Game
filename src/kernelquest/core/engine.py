@@ -7,6 +7,7 @@ import random
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import cast
 
 import pygame
 
@@ -28,9 +29,20 @@ from kernelquest.core.config import (
     WINDOW_TITLE,
     WINDOW_WIDTH,
 )
+from kernelquest.core.run_progress import (
+    MilestoneKind,
+    RunProgress,
+)
 from kernelquest.core.settings import Settings
 from kernelquest.core.state import GameState
 from kernelquest.data.database import Database
+from kernelquest.data.distros_catalog import (
+    DISTROS,
+    Distro,
+    first_distro_key,
+    get_distro,
+    next_in_chain,
+)
 from kernelquest.data.lore_catalog import (
     CATALOG as LORE_CATALOG,
 )
@@ -46,11 +58,14 @@ from kernelquest.data.repositories import (
     CombatLogRepository,
     DaemonRepository,
     DailyRunRepository,
+    DistroRepository,
     IntelRepository,
     LoreRepository,
     MetaRepository,
+    MilestoneRepository,
     RunRepository,
     ScoreRepository,
+    SkipTagRepository,
     UpgradeRepository,
 )
 from kernelquest.data.upgrades_catalog import CATALOG, PlayerBonus
@@ -79,7 +94,10 @@ from kernelquest.entities.malware_registry import maybe_get as maybe_get_species
 from kernelquest.entities.patch import CATALOG as PATCH_CATALOG
 from kernelquest.entities.patch import Patch, PatchEffects, PatchState
 from kernelquest.entities.player import Player
-from kernelquest.entities.program import starter_loadout
+from kernelquest.entities.program import CATALOG as PROGRAM_CATALOG
+from kernelquest.entities.program import ProgramSlot, get_program, starter_loadout
+from kernelquest.entities.skip_tag import CATALOG as SKIP_TAG_CATALOG
+from kernelquest.entities.skip_tag import SkipTag
 from kernelquest.systems.ai import run_enemy_turn
 from kernelquest.systems.combat import fire_death_effects, player_attack
 from kernelquest.systems.daemons import (
@@ -165,6 +183,9 @@ class GameEngine:
         self._lore_repo: LoreRepository | None = None
         self._intel_repo: IntelRepository | None = None
         self._combat_log_repo: CombatLogRepository | None = None
+        self._distros_repo: DistroRepository | None = None
+        self._milestones_repo: MilestoneRepository | None = None
+        self._skip_tags_repo: SkipTagRepository | None = None
         # Phase 8 — per-run summary buckets keyed by (program_key, species_key).
         self._run_combat_log: dict[tuple[str, str], dict[str, int]] = {}
         # Inspect mode + bestiary navigation.
@@ -217,6 +238,21 @@ class GameEngine:
         self._range_god_mode: bool = False
         self._range_infinite_cycles: bool = False
         self._range_full_fov: bool = False
+        # Phase 11 — distros & structured runs.
+        self._run_progress: RunProgress | None = None
+        self._distro_index: int = 0
+        self._distro: Distro | None = None
+        self._milestone_result_panel: dict[str, object] = {}
+        self._vendor_stock: list[dict[str, object]] = []
+        self._vendor_index: int = 0
+        self._vendor_message: str | None = None
+        self._vendor_free: bool = False  # set by the "free_vendor" skip tag
+        self._double_bits_pending: bool = False
+        self._extra_daemon_slot_pending: bool = False
+        self._bonus_score_pending: int = 0
+        self._run_summary_payload: dict[str, object] = {}
+        self._run_was_successful: bool = False
+        self._meta_bits_snapshot: int = 0
         # Phase 7 — narrative state.
         self._cinematic: CinematicPlayer | None = None
         self._cinematic_kind: str = ""  # "intro" | "ending"
@@ -242,7 +278,18 @@ class GameEngine:
         self._lore_repo = LoreRepository(self._database)
         self._intel_repo = IntelRepository(self._database)
         self._combat_log_repo = CombatLogRepository(self._database)
+        # Phase 11 — distros, milestones, skip tags.
+        self._distros_repo = DistroRepository(self._database)
+        self._milestones_repo = MilestoneRepository(self._database)
+        self._skip_tags_repo = SkipTagRepository(self._database)
+        self._distros_repo.ensure_seeded(
+            [d.key for d in DISTROS], first_unlocked=first_distro_key()
+        )
         self._settings = settings_module.load(self._meta)
+        # Phase 11 — apply persisted locale immediately so first frame is correct.
+        from kernelquest.ui import i18n as _i18n
+
+        _i18n.set_language(self._settings.language)
         # Grant the starter daemon on the very first launch.
         if not self._daemons_repo.owned():
             self._daemons_repo.grant(starter_daemon().key)
@@ -370,6 +417,14 @@ class GameEngine:
                 self._handle_inspect_key(event)
             elif self._state is GameState.TUTORIAL_RANGE:
                 self._handle_range_key(event)
+            elif self._state is GameState.DISTRO_SELECT:
+                self._handle_distro_select_key(event)
+            elif self._state is GameState.VENDOR:
+                self._handle_vendor_key(event)
+            elif self._state is GameState.MILESTONE_RESULT:
+                self._handle_milestone_result_key(event)
+            elif self._state is GameState.RUN_SUMMARY:
+                self._handle_run_summary_key(event)
 
     def _apply_display_mode(self) -> None:
         flags = pygame.FULLSCREEN if self._settings.fullscreen else 0
@@ -394,9 +449,9 @@ class GameEngine:
     def _activate_menu_option(self) -> None:
         choice = _MENU_OPTIONS[self._menu_index]
         if choice == "New Run":
-            self._start_new_run(daily=False)
+            self._open_distro_select(daily=False)
         elif choice == "Daily Run":
-            self._start_new_run(daily=True)
+            self._open_distro_select(daily=True)
         elif choice == "Training":
             self._start_tutorial_range()
         elif choice == "How to Play":
@@ -469,6 +524,7 @@ class GameEngine:
         "large_text",
         "palette",
         "auto_skip_intro",
+        "language",
     )
 
     def _adjust_setting(self, direction: int) -> None:
@@ -506,6 +562,8 @@ class GameEngine:
                 self._ui.player_palette = get_player_palette(self._settings.player_palette)
         elif key == "auto_skip_intro":
             self._settings.toggle_auto_skip_intro()
+        elif key == "language":
+            self._settings.cycle_language(direction)
 
     def _cycle_theme(self, direction: int) -> None:
         from kernelquest.ui import themes as themes_mod
@@ -760,11 +818,29 @@ class GameEngine:
                 )
             if self._settings.crt_effect:
                 ui.render_scanlines()
+        elif self._state is GameState.DISTRO_SELECT:
+            ui.render_distro_select(
+                rows=self._distro_rows(),
+                selected=self._distro_index,
+                daily=self._distro_select_for_daily,
+            )
+        elif self._state is GameState.MILESTONE_RESULT:
+            ui.render_milestone_result(self._milestone_result_panel)
+        elif self._state is GameState.VENDOR:
+            ui.render_vendor(
+                bits=self._fetch_bits(),
+                stock=self._vendor_stock,
+                selected=self._vendor_index,
+                message=self._vendor_message,
+                free=self._vendor_free,
+            )
+        elif self._state is GameState.RUN_SUMMARY:
+            ui.render_run_summary(self._run_summary_payload)
         ui.present()
 
     # ----- transitions -----
 
-    def _start_new_run(self, *, daily: bool = False) -> None:
+    def _start_new_run(self, *, daily: bool = False, distro_key: str | None = None) -> None:
         if daily:
             seed = today_seed()
         elif self._seed_override is not None:
@@ -784,21 +860,59 @@ class GameEngine:
         self._glitch_intensity = 0.0
         self._floats.clear()
 
+        # Phase 11 — pick the active distro (default to first available).
+        distro = get_distro(distro_key or first_distro_key())
+        self._distro = distro
+        self._run_progress = RunProgress(distro_key=distro.key)
+        self._vendor_free = False
+        self._double_bits_pending = False
+        self._extra_daemon_slot_pending = False
+        self._bonus_score_pending = 0
+        self._run_was_successful = False
+        self._run_summary_payload = {}
+        # Phase 11 — snapshot meta bits so failed runs revert to this value.
+        if self._meta is not None:
+            self._meta_bits_snapshot = self._meta.get_int(_KEY_BITS, 0)
+
         bonus = self._compute_bonus()
-        max_ram = PLAYER_START_RAM + bonus.bonus_ram
-        max_cycles = PLAYER_START_CPU_CYCLES + bonus.bonus_cycles
+        max_ram = PLAYER_START_RAM + bonus.bonus_ram + distro.bonus_ram
+        max_cycles = PLAYER_START_CPU_CYCLES + bonus.bonus_cycles + distro.bonus_cycles
+        max_cycles = max(1, max_cycles)
         player = Player(
             max_ram=max_ram,
             ram=max_ram,
             max_cpu_cycles=max_cycles,
             cpu_cycles=max_cycles,
-            cache_capacity=PLAYER_CACHE_CAPACITY + bonus.bonus_cache,
-            base_damage=PLAYER_BASE_DAMAGE + bonus.bonus_damage,
+            cache_capacity=PLAYER_CACHE_CAPACITY + bonus.bonus_cache + distro.bonus_cache,
+            base_damage=PLAYER_BASE_DAMAGE + bonus.bonus_damage + distro.bonus_damage,
             bonus_scan_radius=bonus.bonus_scan_radius,
         )
-        # Phase 5 — equip programs and persisted daemons.
-        player.programs = starter_loadout()
+        # Phase 5 — equip programs and persisted daemons. Phase 11 — distro overrides.
+        if distro.starter_program_keys:
+            slots: list[ProgramSlot] = []
+            for prog_key in distro.starter_program_keys:
+                try:
+                    prog = get_program(prog_key)
+                except KeyError:
+                    continue
+                slots.append(ProgramSlot(program=prog, charges=prog.max_charges))
+            player.programs = slots if slots else starter_loadout()
+        else:
+            player.programs = starter_loadout()
         player.daemons = self._equipped_daemons()
+        if distro.starter_daemon_keys:
+            for d_key in distro.starter_daemon_keys:
+                try:
+                    player.daemons.append(get_daemon(d_key))
+                except KeyError:
+                    continue
+        if distro.random_starter_daemons > 0:
+            extras = self._rng.sample(
+                list(DAEMON_CATALOG),
+                k=min(distro.random_starter_daemons, len(DAEMON_CATALOG)),
+            )
+            for d in extras:
+                player.daemons.append(d)
 
         self._world = generate_world(player=player, depth=1, rng=self._rng)
         self._world.recompute_fov()
@@ -807,12 +921,18 @@ class GameEngine:
         self._console.clear()
         prefix = "DAILY " if daily else ""
         self._console.kernel(
-            f"{prefix}init(0) spawned in sector 0x{player.depth_reached:02X} (seed={seed})"
+            f"{prefix}init(0) spawned in sector 0x{player.depth_reached:02X} "
+            f"(seed={seed}, distro={distro.name})"
         )
         self._particles.clear()
         if self._sfx is not None:
             self._sfx.start_music("main")
         self._refresh_boss_state()
+        # Begin milestone bookkeeping for release 0, milestone 0.
+        self._run_progress.begin_milestone(player.score + self._bonus_score_pending)
+        if self._bonus_score_pending:
+            player.score += self._bonus_score_pending
+            self._bonus_score_pending = 0
         self._state = GameState.PLAYING
 
     def _equipped_daemons(self) -> list[Daemon]:
@@ -1145,6 +1265,69 @@ class GameEngine:
         self._world.recompute_fov()
 
     def _descend(self) -> None:
+        """Phase 11 — EXIT reached. Close the current milestone and gate the
+        next sector behind the result screen + vendor.
+        """
+        assert self._world is not None
+        # Tutorial Range / non-structured paths skip Phase 11 progression.
+        if self._run_progress is None:
+            self._generate_next_sector()
+            return
+        self._finish_current_milestone(reached_exit=True)
+
+    def _finish_current_milestone(self, *, reached_exit: bool) -> None:
+        """Close the active milestone; transition to the result screen / failure."""
+        assert self._world is not None
+        assert self._run_progress is not None
+        player = self._world.player
+        score_in_milestone = self._run_progress.milestone_score(player.score)
+        target = self._run_progress.current_target
+        cleared = reached_exit and score_in_milestone >= target
+        kind = self._run_progress.current_kind
+
+        rec = self._run_progress.finish_current(
+            reached_score=score_in_milestone,
+            was_skipped=False,
+            was_cleared=cleared,
+        )
+
+        # Bits earned per milestone — base + bonuses + skip-tag multiplier.
+        kill_mult = self._distro.bits_kill_multiplier if self._distro is not None else 1.0
+        bits = int(round(score_in_milestone / 25 * kill_mult))
+        if self._double_bits_pending:
+            bits *= 2
+            self._double_bits_pending = False
+        # Vendor stock cleared, skip flags reset for next milestone.
+        self._milestone_result_panel = {
+            "release_index": rec.release_index,
+            "milestone_index": rec.milestone_index,
+            "kind": kind.value,
+            "score": score_in_milestone,
+            "target": target,
+            "bits": bits,
+            "cleared": cleared,
+            "boss": kind is MilestoneKind.BOSS,
+        }
+
+        if not cleared:
+            # Failure — out of milestone budget. Same hook as crash.
+            player.crash_cause = player.crash_cause or "Target missed"
+            self._enter_game_over()
+            return
+
+        # Award milestone bits up front (in-run currency).
+        if self._meta is not None:
+            current = self._meta.get_int(_KEY_BITS, 0)
+            self._meta.set_int(_KEY_BITS, current + bits)
+        self._console.info(
+            f"milestone {rec.release_index + 1}.{rec.milestone_index + 1} cleared (+{bits}b)"
+        )
+        self._state = GameState.MILESTONE_RESULT
+
+    def _generate_next_sector(self) -> None:
+        """Generate the next world. Used by both the tutorial path and Phase 11
+        once the milestone result / vendor screens are dismissed.
+        """
         assert self._world is not None
         player = self._world.player
         player.depth_reached += 1
@@ -1174,6 +1357,13 @@ class GameEngine:
         self._floats.clear()
         player.end_turn()
         self._refresh_boss_state()
+        # Phase 11 — start the next milestone's score window.
+        if self._run_progress is not None:
+            self._run_progress.begin_milestone(player.score)
+            if self._bonus_score_pending > 0:
+                player.score += self._bonus_score_pending
+                self._console.info(f"skip-tag bonus: +{self._bonus_score_pending} score")
+                self._bonus_score_pending = 0
         # Stack-trace interstitial precedes the patch picker (Phase 7.4).
         self._open_stack_trace()
 
@@ -1276,13 +1466,15 @@ class GameEngine:
             crash_cause=player.crash_cause or "unknown",
         )
         if self._run_meta is not None:
-            self._runs.insert(
+            run_id = self._runs.insert(
                 player_name=name,
                 seed=self._run_meta.seed,
                 depth_reached=player.depth_reached,
                 total_score=player.score,
                 crash_cause=player.crash_cause or "unknown",
                 duration_ms=self._run_meta.elapsed_ms(),
+                distro_key=self._distro.key if self._distro is not None else None,
+                is_successful=False,
             )
             if self._run_meta.is_daily and self._daily_repo is not None:
                 self._daily_repo.insert(
@@ -1294,10 +1486,17 @@ class GameEngine:
                     crash_cause=player.crash_cause or "unknown",
                     duration_ms=self._run_meta.elapsed_ms(),
                 )
-        # Award bits = score / 10 + depth * 2.
-        bits_earned = player.score // 10 + player.depth_reached * 2
-        current = self._meta.get_int(_KEY_BITS, 0)
-        self._meta.set_int(_KEY_BITS, current + bits_earned)
+            # Phase 11 — record milestone trail / skip tags even on failure.
+            self._persist_phase11_artifacts(run_id)
+        # Phase 11 — failed run forfeits all in-run bits earned this run.
+        if self._run_progress is not None:
+            self._meta.set_int(_KEY_BITS, self._meta_bits_snapshot)
+            bits_earned = 0
+        else:
+            # Tutorial / legacy path keeps old reward formula.
+            bits_earned = player.score // 10 + player.depth_reached * 2
+            current = self._meta.get_int(_KEY_BITS, 0)
+            self._meta.set_int(_KEY_BITS, current + bits_earned)
         log.info(
             "Saved run: name=%s depth=%d score=%d cause=%s bits=+%d",
             name,
@@ -1357,20 +1556,25 @@ class GameEngine:
         self._shop_message = f"Purchased {upgrade.label} L{current + 1} for {cost} bits."
 
     def _settings_rows(self) -> list[tuple[str, str]]:
+        from kernelquest.ui.i18n import t
+
         s = self._settings
+        on = t("settings.on")
+        off = t("settings.off")
         return [
-            ("Music Vol", f"{int(round(s.music_volume * 100))}%"),
-            ("SFX Vol", f"{int(round(s.sfx_volume * 100))}%"),
-            ("Mute", "ON" if s.muted else "OFF"),
-            ("Difficulty", s.difficulty.value),
-            ("Theme", s.theme),
-            ("Fullscreen", "ON" if s.fullscreen else "OFF"),
-            ("UI Scale", f"{s.ui_scale:.2f}x"),
-            ("Reduce Motion", "ON" if s.reduce_motion else "OFF"),
-            ("CRT Effect", "ON" if s.crt_effect else "OFF"),
-            ("Large Text", "ON" if s.large_text else "OFF"),
-            ("Player Palette", s.player_palette),
-            ("Auto-skip Intro", "ON" if s.auto_skip_intro else "OFF"),
+            (t("settings.music_vol"), f"{int(round(s.music_volume * 100))}%"),
+            (t("settings.sfx_vol"), f"{int(round(s.sfx_volume * 100))}%"),
+            (t("settings.mute"), on if s.muted else off),
+            (t("settings.difficulty"), s.difficulty.value),
+            (t("settings.theme"), s.theme),
+            (t("settings.fullscreen"), on if s.fullscreen else off),
+            (t("settings.ui_scale"), f"{s.ui_scale:.2f}x"),
+            (t("settings.reduce_motion"), on if s.reduce_motion else off),
+            (t("settings.crt"), on if s.crt_effect else off),
+            (t("settings.large_text"), on if s.large_text else off),
+            (t("settings.palette"), s.player_palette),
+            (t("settings.auto_skip_intro"), on if s.auto_skip_intro else off),
+            (t("settings.language"), s.language.upper()),
         ]
 
     def _fetch_high_scores(self) -> list[tuple[str, int, int, str, str]]:
@@ -2000,6 +2204,372 @@ class GameEngine:
             weakness=weakness,
             affixes=enemy.affixes.badges(),
         )
+
+    # ------------------------------------------------------------------
+    # Phase 11 — Distros, Milestone result, Vendor, Run summary
+    # ------------------------------------------------------------------
+
+    _distro_select_for_daily: bool = False
+
+    def _open_distro_select(self, *, daily: bool) -> None:
+        """Show the Distro picker before launching a fresh run."""
+        self._distro_select_for_daily = daily
+        # Default to the most recently unlocked distro.
+        unlocked = self._distros_repo.unlocked_keys() if self._distros_repo else {DISTROS[0].key}
+        for i, d in enumerate(DISTROS):
+            if d.key in unlocked:
+                self._distro_index = i
+        self._state = GameState.DISTRO_SELECT
+
+    def _distro_rows(self) -> list[dict[str, object]]:
+        unlocked = self._distros_repo.unlocked_keys() if self._distros_repo else {DISTROS[0].key}
+        rows: list[dict[str, object]] = []
+        for d in DISTROS:
+            rows.append(
+                {
+                    "key": d.key,
+                    "name": d.name,
+                    "description": d.description,
+                    "signature": d.signature,
+                    "unlock_hint": d.unlock_hint,
+                    "unlocked": d.key in unlocked,
+                    "bonus_ram": d.bonus_ram,
+                    "bonus_cycles": d.bonus_cycles,
+                    "starter_programs": list(d.starter_program_keys),
+                }
+            )
+        return rows
+
+    def _handle_distro_select_key(self, event: pygame.event.Event) -> None:
+        if event.key == pygame.K_ESCAPE:
+            self._state = GameState.MENU
+            return
+        if event.key in (pygame.K_UP, pygame.K_w, pygame.K_LEFT, pygame.K_a):
+            self._distro_index = (self._distro_index - 1) % len(DISTROS)
+        elif event.key in (pygame.K_DOWN, pygame.K_s, pygame.K_RIGHT, pygame.K_d):
+            self._distro_index = (self._distro_index + 1) % len(DISTROS)
+        elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
+            chosen = DISTROS[self._distro_index]
+            unlocked = (
+                self._distros_repo.unlocked_keys() if self._distros_repo else {DISTROS[0].key}
+            )
+            if chosen.key not in unlocked:
+                self._console.warn(f"{chosen.name} locked — clear earlier distro first")
+                return
+            self._start_new_run(daily=self._distro_select_for_daily, distro_key=chosen.key)
+
+    # ----- milestone result screen -----
+
+    def _handle_milestone_result_key(self, event: pygame.event.Event) -> None:
+        panel = self._milestone_result_panel
+        is_boss = bool(panel.get("boss"))
+        if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
+            self._proceed_after_milestone()
+        elif event.key in (pygame.K_v,) and not is_boss:
+            self._open_vendor()
+        elif event.key in (pygame.K_s,) and not is_boss:
+            self._skip_current_milestone()
+        elif event.key == pygame.K_ESCAPE:
+            self._proceed_after_milestone()
+
+    def _proceed_after_milestone(self) -> None:
+        """Advance the run pointer; either generate next sector or finish run."""
+        assert self._run_progress is not None
+        self._run_progress.advance()
+        if self._run_progress.is_run_complete:
+            self._finish_run(success=True)
+            return
+        # Boss milestones skip the vendor (loot drop instead).
+        kind = self._run_progress.current_kind
+        # Open vendor between non-first milestones; first milestone of run skips.
+        if (
+            self._milestone_result_panel.get("kind") != MilestoneKind.BOSS.value
+            or kind is not MilestoneKind.SECTOR_A
+        ):
+            # Always offer vendor after every played milestone (per ROADMAP 11.3).
+            self._open_vendor()
+        else:
+            self._generate_next_sector()
+            self._state = GameState.PLAYING
+
+    def _skip_current_milestone(self) -> None:
+        """Mark the just-played milestone as skipped instead and grant a tag."""
+        assert self._run_progress is not None
+        # We've already recorded a clear; convert the most recent record.
+        if self._run_progress.records:
+            rec = self._run_progress.records[-1]
+            rec.was_skipped = True
+            rec.was_cleared = False
+        # Award a random skip tag.
+        tag = self._rng.choice(SKIP_TAG_CATALOG)
+        self._run_progress.grant_skip_tag(tag.key)
+        self._apply_skip_tag(tag)
+        self._console.info(f"skipped milestone, granted: {tag.label}")
+        self._milestone_result_panel["skip_tag"] = tag.label
+        # Skipped milestone forfeits its score window — no vendor.
+        self._run_progress.advance()
+        if self._run_progress.is_run_complete:
+            self._finish_run(success=True)
+            return
+        self._generate_next_sector()
+        self._state = GameState.PLAYING
+
+    def _apply_skip_tag(self, tag: SkipTag) -> None:
+        """Translate a tag's ``effect_type`` into a deferred engine flag."""
+        if tag.effect_type == "free_vendor":
+            self._vendor_free = True
+        elif tag.effect_type == "double_bits":
+            self._double_bits_pending = True
+        elif tag.effect_type == "extra_daemon_slot":
+            self._extra_daemon_slot_pending = True
+        elif tag.effect_type == "bonus_score":
+            self._bonus_score_pending += tag.magnitude
+
+    # ----- vendor (in-run shop) -----
+
+    def _open_vendor(self) -> None:
+        self._vendor_stock = self._build_vendor_stock()
+        self._vendor_index = 0
+        self._vendor_message = None
+        self._state = GameState.VENDOR
+
+    def _build_vendor_stock(self) -> list[dict[str, object]]:
+        """Compose 5 stock entries: 2 programs, 2 daemons, 1 patch — distro-biased."""
+        from kernelquest.entities.daemon import CATALOG as DAEMONS
+
+        stock: list[dict[str, object]] = []
+        # Programs
+        progs = list(PROGRAM_CATALOG)
+        self._rng.shuffle(progs)
+        for prog in progs[:2]:
+            stock.append(
+                {
+                    "kind": "program",
+                    "key": prog.key,
+                    "label": prog.label,
+                    "description": prog.description,
+                    "cost": 5,
+                }
+            )
+        # Daemons (filter by distro tag bias when possible).
+        daemons = list(DAEMONS)
+        bias = self._distro.vendor_tag_bias if self._distro is not None else ()
+        if bias:
+            preferred = [d for d in daemons if any(t in d.description.lower() for t in bias)]
+            daemons = preferred + [d for d in daemons if d not in preferred]
+        self._rng.shuffle(daemons)
+        for dae in daemons[:2]:
+            stock.append(
+                {
+                    "kind": "daemon",
+                    "key": dae.key,
+                    "label": dae.label,
+                    "description": dae.description,
+                    "cost": 8,
+                }
+            )
+        # One patch.
+        patch = self._rng.choice(list(PATCH_CATALOG))
+        stock.append(
+            {
+                "kind": "patch",
+                "key": patch.key,
+                "label": patch.label,
+                "description": patch.description,
+                "cost": 6,
+            }
+        )
+        # Reroll + leave (special entries).
+        stock.append(
+            {
+                "kind": "reroll",
+                "key": "reroll",
+                "label": "Reroll",
+                "description": "",
+                "cost": 3,
+            }
+        )
+        stock.append(
+            {
+                "kind": "leave",
+                "key": "leave",
+                "label": "Leave",
+                "description": "",
+                "cost": 0,
+            }
+        )
+        return stock
+
+    def _handle_vendor_key(self, event: pygame.event.Event) -> None:
+        if event.key in (pygame.K_ESCAPE,):
+            self._exit_vendor()
+            return
+        if not self._vendor_stock:
+            self._exit_vendor()
+            return
+        if event.key in (pygame.K_UP, pygame.K_w):
+            self._vendor_index = (self._vendor_index - 1) % len(self._vendor_stock)
+        elif event.key in (pygame.K_DOWN, pygame.K_s):
+            self._vendor_index = (self._vendor_index + 1) % len(self._vendor_stock)
+        elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
+            self._vendor_buy_selected()
+
+    def _vendor_buy_selected(self) -> None:
+        item = self._vendor_stock[self._vendor_index]
+        kind = str(item["kind"])
+        if kind == "leave":
+            self._exit_vendor()
+            return
+        if kind == "reroll":
+            cost = 0 if self._vendor_free else 3
+            if not self._spend_bits(cost):
+                self._vendor_message = "not enough bits"
+                return
+            self._vendor_stock = self._build_vendor_stock()
+            self._vendor_index = 0
+            self._vendor_message = "rerolled"
+            return
+        cost = 0 if self._vendor_free else cast(int, item["cost"])
+        if not self._spend_bits(cost):
+            self._vendor_message = "not enough bits"
+            return
+        self._vendor_apply_purchase(item)
+        self._vendor_message = f"{item['label']} purchased"
+        # Free-vendor tag is a single-vendor effect (every item free).
+        # Remove the bought entry so the player can't reuse it.
+        self._vendor_stock = [
+            s for i, s in enumerate(self._vendor_stock) if i != self._vendor_index
+        ]
+        self._vendor_index = max(0, self._vendor_index - 1)
+
+    def _spend_bits(self, cost: int) -> bool:
+        if cost <= 0:
+            return True
+        if self._meta is None:
+            return False
+        current = self._meta.get_int(_KEY_BITS, 0)
+        if current < cost:
+            return False
+        self._meta.set_int(_KEY_BITS, current - cost)
+        return True
+
+    def _vendor_apply_purchase(self, item: dict[str, object]) -> None:
+        if self._world is None:
+            return
+        player = self._world.player
+        kind = str(item["kind"])
+        key = str(item["key"])
+        if kind == "program":
+            try:
+                prog = get_program(key)
+            except KeyError:
+                return
+            player.programs.append(ProgramSlot(program=prog, charges=prog.max_charges))
+        elif kind == "daemon":
+            try:
+                player.daemons.append(get_daemon(key))
+            except KeyError:
+                return
+        elif kind == "patch":
+            for p in PATCH_CATALOG:
+                if p.key == key:
+                    self._patches.add(p)
+                    break
+
+    def _exit_vendor(self) -> None:
+        # Reset the free-vendor effect after one visit.
+        self._vendor_free = False
+        self._generate_next_sector()
+        self._state = GameState.PLAYING
+
+    # ----- run completion (success path) -----
+
+    def _finish_run(self, *, success: bool) -> None:
+        """Phase 11 — close out the run and route to the summary screen."""
+        if self._world is None:
+            return
+        self._run_was_successful = success
+        player = self._world.player
+        bits_to_meta = 0
+        unlocked_distro: str | None = None
+        if success:
+            self._console.kernel("[init] uptime certified — kernel stable.")
+            # Carry-over to meta `bits` only on successful run (per 11.3).
+            bits_to_meta = max(50, player.score // 5)
+            if self._meta is not None:
+                current = self._meta.get_int(_KEY_BITS, 0)
+                self._meta.set_int(_KEY_BITS, current + bits_to_meta)
+            # Sequential distro unlock.
+            if self._distro is not None and self._distros_repo is not None:
+                nxt = next_in_chain(self._distro.key)
+                if nxt is not None and self._distros_repo.unlock(nxt.key):
+                    unlocked_distro = nxt.name
+        self._run_summary_payload = {
+            "success": success,
+            "distro": self._distro.name if self._distro is not None else "?",
+            "releases_cleared": (
+                self._run_progress.releases_cleared if self._run_progress is not None else 0
+            ),
+            "bits_to_meta": bits_to_meta,
+            "unlocked_distro": unlocked_distro or "",
+            "score": player.score,
+        }
+        # Persist run as successful.
+        self._save_successful_run()
+        self._state = GameState.RUN_SUMMARY
+
+    def _save_successful_run(self) -> None:
+        if self._scores is None or self._runs is None or self._world is None:
+            return
+        player = self._world.player
+        name = self._name_buffer.strip() or "anon_process"
+        self._scores.insert(
+            player_name=name,
+            depth_reached=player.depth_reached,
+            total_score=player.score,
+            crash_cause="run_complete",
+        )
+        run_id = 0
+        if self._run_meta is not None:
+            run_id = self._runs.insert(
+                player_name=name,
+                seed=self._run_meta.seed,
+                depth_reached=player.depth_reached,
+                total_score=player.score,
+                crash_cause="run_complete",
+                duration_ms=self._run_meta.elapsed_ms(),
+                distro_key=self._distro.key if self._distro is not None else None,
+                is_successful=True,
+            )
+        self._persist_phase11_artifacts(run_id)
+
+    def _persist_phase11_artifacts(self, run_id: int) -> None:
+        if self._run_progress is None:
+            return
+        if self._milestones_repo is not None and run_id > 0:
+            rows: list[tuple[int, int, str, int, int, bool, bool]] = [
+                (
+                    rec.release_index,
+                    rec.milestone_index,
+                    rec.kind.value,
+                    rec.target_score,
+                    rec.reached_score,
+                    rec.was_skipped,
+                    rec.was_cleared,
+                )
+                for rec in self._run_progress.records
+            ]
+            self._milestones_repo.insert_many(run_id, rows)
+        if self._skip_tags_repo is not None and run_id > 0:
+            for tag in self._run_progress.skip_tags:
+                self._skip_tags_repo.insert(run_id, tag.key, tag.used)
+
+    def _handle_run_summary_key(self, event: pygame.event.Event) -> None:
+        if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_ESCAPE, pygame.K_SPACE):
+            self._run_progress = None
+            self._distro = None
+            self._world = None
+            self._state = GameState.MENU
 
 
 def _key_to_delta(key: int) -> tuple[int, int] | None:

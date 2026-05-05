@@ -223,4 +223,22 @@ All settings persist in the `meta` table.
 
 ---
 
+## 15. Distros & Structured Runs (Phase 11)
+
+Selecting **New Run** now opens the **Distro Select** screen instead of dropping you directly into a sector. Pick the build that fits the run you want.
+
+- The run is laid out as **8 Releases × 3 Milestones** (Sector A → Sector B → Boss). Each milestone has a **target score** you must hit before exiting.
+- After every cleared milestone, the **Vendor** opens so you can spend in-run `bits` on Programs, Daemons, Patches, or a reroll.
+- You may **Skip** non-boss milestones from the result screen — you forfeit that milestone's score and vendor visit but earn a one-shot **Skip Tag** (free vendor, double bits, +1 daemon slot, or +score boost).
+- A run is **successful** only when you clear all 8 Releases. Only successful runs bank `bits` to the meta shop and unlock the next Distro in the chain. A failed run is recorded for stats but yields no meta progress.
+- Six starter Distros unlock sequentially: `Vanilla → Minimal → Hardened → Realtime → Bleeding-Edge → Recovery`.
+
+## 16. Language / Dil
+
+The game supports **English** and **Türkçe**. Open **Settings → Language** and press **←/→** to switch; the change is immediate and is persisted between launches.
+
+Oyun **İngilizce** ve **Türkçe** dillerini destekler. **Ayarlar → Dil** menüsünden **←/→** tuşlarıyla anında değiştirebilirsiniz; tercih kalıcı olarak kaydedilir.
+
+---
+
 Good luck, process. Stay resident.

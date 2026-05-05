@@ -119,3 +119,32 @@ Use OS-architecture metaphors throughout the codebase:
 | `level`            | `sector`           |
 | `inventory`        | `cache`            |
 | `death_reason`     | `crash_cause`      |
+
+---
+
+## 11. Phase 11 — Distros & Structured Runs
+
+### Tables
+
+- `distros(key TEXT PRIMARY KEY, name TEXT, unlock_condition TEXT, unlocked_at TIMESTAMP NULL, description TEXT)` — sequential unlock chain, seeded by `DistroRepository.ensure_seeded()` at boot.
+- `run_milestones(id PK, run_id FK→runs, release_index INT, milestone_index INT, kind TEXT, target_score INT, reached_score INT, was_skipped INT, was_cleared INT, timestamp)` — one row per played/skipped milestone.
+- `skip_tags(id PK, run_id FK→runs, tag_key TEXT, used INT)` — Skip Tags awarded during the run.
+
+### `runs` columns added
+
+- `distro_key TEXT NULL` — distro chosen for the run, or NULL for legacy rows.
+- `is_successful INT NOT NULL DEFAULT 0` — 1 iff all 8 Releases were cleared.
+
+### Meta-gating rule (strict)
+
+A run unlocks meta progression **only** when `is_successful = 1`:
+
+- meta `bits` is granted (`max(50, score // 5)`),
+- the next Distro in the chain is unlocked (`DistroRepository.unlock`),
+- the `true_ending` lore beat is delivered.
+
+A failed run is still persisted into `runs` (and the milestone trail / skip tags are saved), but the engine restores the pre-run `bits` snapshot so no currency is banked.
+
+### Localization
+
+The UI has been routed through `kernelquest.ui.i18n`. Two locales ship today (`en`, `tr`) and can be cycled live from **Settings → Language**; the active code is persisted in `~/.kernelquest_settings.json` under `settings.language`.
