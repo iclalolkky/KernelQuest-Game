@@ -7,17 +7,22 @@ import random
 from kernelquest.entities.affix import on_turn_end as _affix_turn_end
 from kernelquest.entities.malware import (
     Bruiser,
+    BufferOverflowBoss,
     Daemonizer,
+    DeadlockTwin,
     ForkBomb,
     KernelPanic,
     LogicBomb,
     Malware,
     NullPointer,
     RaceCondition,
+    RootkitHydra,
     RuntimeError_,
     SegFault,
     StackOverflow,
     SyntaxError_,
+    TheLeak,
+    ZeroDayBoss,
     ZombieProcess,
 )
 from kernelquest.systems.combat import enemy_attack
@@ -25,6 +30,7 @@ from kernelquest.systems.pathfinding import (
     bfs_next_step,
     chebyshev_distance,
 )
+from kernelquest.world.tile import TileType
 from kernelquest.world.world import World
 
 
@@ -34,6 +40,11 @@ def run_enemy_turn(world: World, rng: random.Random, damage_multiplier: float = 
     if world.player.enemies_skip_turns > 0:
         log.append("Enemies stalled (nice).")
         return log
+    # Phase 9 — reset DeadlockTwin same-turn flag at the start of each
+    # enemy turn (player just finished their actions).
+    for enemy in world.enemies:
+        if isinstance(enemy, DeadlockTwin):
+            enemy.attacked_this_turn = False
     # Snapshot to avoid mutation during iteration.
     for enemy in list(world.enemies):
         if not enemy.is_alive or not world.player.is_alive:
@@ -60,6 +71,16 @@ def _act(enemy: Malware, world: World, rng: random.Random, mult: float) -> list[
         return _act_segfault(enemy, world, rng, mult)
     if isinstance(enemy, KernelPanic):
         return _act_kernel_panic(enemy, world, rng, mult)
+    if isinstance(enemy, TheLeak):
+        return _act_the_leak(enemy, world, rng, mult)
+    if isinstance(enemy, DeadlockTwin):
+        return _act_deadlock_twin(enemy, world, rng, mult)
+    if isinstance(enemy, RootkitHydra):
+        return _act_rootkit_hydra(enemy, world, rng, mult)
+    if isinstance(enemy, BufferOverflowBoss):
+        return _act_buffer_overflow(enemy, world, rng, mult)
+    if isinstance(enemy, ZeroDayBoss):
+        return _act_zero_day(enemy, world, rng, mult)
     if isinstance(enemy, (ZombieProcess, ForkBomb)):
         return _act_zombie_process(enemy, world, rng, mult)
     if isinstance(enemy, StackOverflow):
@@ -327,3 +348,88 @@ def _random_walkable(
     if not candidates:
         return None
     return rng.choice(candidates)
+
+
+# ---------------------------------------------------------------------------
+# Phase 9 boss AIs.
+# ---------------------------------------------------------------------------
+
+
+def _act_the_leak(enemy: TheLeak, world: World, rng: random.Random, mult: float) -> list[str]:
+    """Heals each turn it isn't damaged; corrupts a random EMPTY tile."""
+    log: list[str] = []
+    if enemy.last_damaged_turn != world.turn_counter:
+        if enemy.hp < enemy.max_hp:
+            enemy.hp = min(enemy.max_hp, enemy.hp + 1)
+        candidates = [
+            (x, y)
+            for x in range(world.grid.width)
+            for y in range(world.grid.height)
+            if world.grid.get(x, y) is TileType.EMPTY and (x, y) != world.player.position
+        ]
+        if candidates:
+            tx, ty = rng.choice(candidates)
+            world.grid.set(tx, ty, TileType.BAD_SECTOR)
+            log.append(f"{enemy.name} corrupts ({tx},{ty})")
+    if chebyshev_distance(enemy.position, world.player.position) <= 1:
+        dmg = enemy_attack(world.player, enemy, damage=_scaled_damage(enemy.damage, mult))
+        log.append(f"{enemy.name} oozes for {dmg} RAM")
+        return log
+    log.extend(_step_toward_player(enemy, world))
+    return log
+
+
+def _act_deadlock_twin(
+    enemy: DeadlockTwin, world: World, rng: random.Random, mult: float
+) -> list[str]:
+    """Plain-vanilla melee; the twin gimmick lives in the combat module."""
+    if chebyshev_distance(enemy.position, world.player.position) <= 1:
+        dmg = enemy_attack(world.player, enemy, damage=_scaled_damage(enemy.damage, mult))
+        return [f"{enemy.name} stalls you for {dmg} RAM"]
+    return _step_toward_player(enemy, world)
+
+
+def _act_rootkit_hydra(
+    enemy: RootkitHydra, world: World, rng: random.Random, mult: float
+) -> list[str]:
+    """Damage scales with remaining heads."""
+    if chebyshev_distance(enemy.position, world.player.position) <= 1:
+        scaled = _scaled_damage(enemy.damage * max(1, enemy.heads_remaining), mult)
+        dmg = enemy_attack(world.player, enemy, damage=scaled)
+        return [f"{enemy.name} bites with {enemy.heads_remaining} heads (-{dmg} RAM)"]
+    return _step_toward_player(enemy, world)
+
+
+def _act_buffer_overflow(
+    enemy: BufferOverflowBoss, world: World, rng: random.Random, mult: float
+) -> list[str]:
+    """Every 3 turns drops `BAD_SECTOR` projectiles diagonally around the player."""
+    enemy.fill_counter += 1
+    log: list[str] = []
+    if enemy.fill_counter % 3 == 0:
+        px, py = world.player.position
+        for dx, dy in ((-1, -1), (-1, 1), (1, -1), (1, 1)):
+            tx, ty = px + dx, py + dy
+            if world.grid.in_bounds(tx, ty) and world.grid.get(tx, ty) is TileType.EMPTY:
+                world.grid.set(tx, ty, TileType.BAD_SECTOR)
+        log.append(f"{enemy.name} writes data-blocks around you!")
+    if chebyshev_distance(enemy.position, world.player.position) <= 1:
+        dmg = enemy_attack(world.player, enemy, damage=_scaled_damage(enemy.damage, mult))
+        log.append(f"{enemy.name} smashes for {dmg} RAM")
+        return log
+    log.extend(_step_toward_player(enemy, world))
+    return log
+
+
+def _act_zero_day(enemy: ZeroDayBoss, world: World, rng: random.Random, mult: float) -> list[str]:
+    """Hard-hitting melee with occasional 2-tile lunge."""
+    player = world.player
+    dist = chebyshev_distance(enemy.position, player.position)
+    if dist <= 1:
+        dmg = enemy_attack(player, enemy, damage=_scaled_damage(enemy.damage, mult))
+        return [f"{enemy.name} 0-days you for {dmg} RAM"]
+    if dist <= 2 and rng.random() < 0.5:
+        dmg = _scaled_damage(enemy.damage, mult)
+        enemy_attack(player, enemy, damage=dmg)
+        return [f"{enemy.name} chains an exploit ({dmg} RAM)"]
+    return _step_toward_player(enemy, world)

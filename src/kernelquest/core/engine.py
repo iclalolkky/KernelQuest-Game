@@ -63,7 +63,17 @@ from kernelquest.entities.daemon import (
     starter_daemon,
 )
 from kernelquest.entities.damage import DamageType
-from kernelquest.entities.malware import KernelPanic, Malware, SegFault, ZombieProcess
+from kernelquest.entities.malware import (
+    BufferOverflowBoss,
+    DeadlockTwin,
+    KernelPanic,
+    Malware,
+    RootkitHydra,
+    SegFault,
+    TheLeak,
+    ZeroDayBoss,
+    ZombieProcess,
+)
 from kernelquest.entities.malware_registry import maybe_get as maybe_get_species
 from kernelquest.entities.patch import CATALOG as PATCH_CATALOG
 from kernelquest.entities.patch import Patch, PatchEffects, PatchState
@@ -732,9 +742,7 @@ class GameEngine:
 
         self._world = generate_world(player=player, depth=1, rng=self._rng)
         self._world.recompute_fov()
-        self._viewport = Viewport.centered(
-            WINDOW_WIDTH, WINDOW_HEIGHT, self._world.grid.width, self._world.grid.height
-        )
+        self._viewport = self._make_viewport(self._world)
         self._name_buffer = ""
         self._console.clear()
         prefix = "DAILY " if daily else ""
@@ -806,6 +814,8 @@ class GameEngine:
         )
         self._console.info(result.log_message)
         self._play_sfx("attack")
+        if result.phase_advanced is not None:
+            self._on_boss_phase_advanced(enemy, result.phase_advanced)
         ex, ey = enemy.position
         self._particles.burst(
             (ex + 0.5, ey + 0.5),
@@ -855,6 +865,11 @@ class GameEngine:
         if getattr(enemy, "is_boss", False) and self._first_boss_pending:
             self._first_boss_pending = False
             self._unlock_lore_for("first_boss")
+        # Phase 9 — per-boss lore + bestiary trophy on first kill.
+        if getattr(enemy, "is_boss", False) and enemy.species_key:
+            self._unlock_lore_for(f"boss_{enemy.species_key}")
+            if self._intel_repo is not None:
+                self._intel_repo.reveal(enemy.species_key)
         # Score with combo + patch multipliers.
         patch_effects = self._patches.effects()
         base = enemy.score_value
@@ -869,6 +884,11 @@ class GameEngine:
         if isinstance(enemy, ZombieProcess) and self._rng.random() < 0.25:
             self._maybe_award_daemon()
         if isinstance(enemy, SegFault):
+            self._maybe_award_daemon(force=True)
+        # Phase 9 — every new boss species awards a daemon on first kill.
+        if isinstance(
+            enemy, (TheLeak, DeadlockTwin, RootkitHydra, BufferOverflowBoss, ZeroDayBoss)
+        ):
             self._maybe_award_daemon(force=True)
         # Boss defeated — release lock and restore main music.
         if getattr(enemy, "is_boss", False) and not self._world.has_living_boss:
@@ -976,17 +996,57 @@ class GameEngine:
         from kernelquest.entities.malware_registry import maybe_get as _maybe
 
         archetypes = set()
+        any_alive = False
         for enemy in self._world.enemies:
-            if not enemy.is_alive or enemy.position not in self._world.visible:
+            if not enemy.is_alive:
+                continue
+            any_alive = True
+            if enemy.position not in self._world.visible:
                 continue
             sp = _maybe(enemy.species_key)
             if sp is not None:
                 archetypes.add(sp.archetype)
+        safe_zone = not any_alive and not self._boss_active
         self._music.update_targets(
             archetypes,
             boss_active=self._boss_active,
             reduce_motion=self._settings.reduce_motion,
+            safe_zone=safe_zone,
         )
+        # Phase 9 — swap track to a safe-zone signal when the sector is clear.
+        if self._sfx is not None and not self._boss_active:
+            target_track = "safe" if safe_zone else "main"
+            if self._sfx.current_track != target_track:
+                self._sfx.start_music(target_track)
+
+    def _make_viewport(self, world: World) -> Viewport:
+        """Phase 9 — fit the map within the play area without overlapping the
+        right-side HUD column or the bottom console strip.
+        """
+        hud_width = 280
+        console_height = 120
+        margin = 16
+        avail_w = max(160, WINDOW_WIDTH - hud_width - margin * 2)
+        avail_h = max(160, WINDOW_HEIGHT - console_height - margin * 3)
+        gw = max(1, world.grid.width)
+        gh = max(1, world.grid.height)
+        tile = max(8, min(avail_w // gw, avail_h // gh))
+        ox = margin + (avail_w - gw * tile) // 2
+        oy = margin + (avail_h - gh * tile) // 2
+        return Viewport(origin_x=ox, origin_y=oy, tile_size=tile)
+
+    def _boss_music_track(self, boss: Malware) -> str:
+        if isinstance(boss, TheLeak):
+            return "the_leak"
+        if isinstance(boss, DeadlockTwin):
+            return "deadlock"
+        if isinstance(boss, RootkitHydra):
+            return "hydra"
+        if isinstance(boss, BufferOverflowBoss):
+            return "buffer_overflow"
+        if isinstance(boss, ZeroDayBoss):
+            return "zero_day"
+        return "boss"
 
     def _end_player_turn(self) -> None:
         assert self._world is not None
@@ -1044,12 +1104,29 @@ class GameEngine:
             extra_enemies=patch_effects.extra_enemies_per_sector,
         )
         self._world.recompute_fov()
+        self._viewport = self._make_viewport(self._world)
         self._particles.clear()
         self._floats.clear()
         player.end_turn()
         self._refresh_boss_state()
         # Stack-trace interstitial precedes the patch picker (Phase 7.4).
         self._open_stack_trace()
+
+    def _on_boss_phase_advanced(self, enemy: Malware, phase: object) -> None:
+        """Phase 9 — react to a boss entering its next phase."""
+        # ``phase`` is a BossPhase; typed loosely to avoid an extra import.
+        from kernelquest.entities.boss_phases import BossPhase
+
+        if not isinstance(phase, BossPhase):  # pragma: no cover
+            return
+        self._console.crit(f"-- {enemy.crash_label}: PHASE = {phase.name} --")
+        if phase.telegraph:
+            self._console.warn(phase.telegraph)
+        self._glitch_intensity = max(self._glitch_intensity, 0.8)
+        self._shake.punch(SCREEN_SHAKE_DAMAGE_INTENSITY)
+        if self._sfx is not None and phase.music_overlay:
+            # Re-trigger the boss track to "swap into" the overlay layer.
+            self._sfx.start_music(self._boss_music_track(enemy))
 
     def _refresh_boss_state(self) -> None:
         if self._world is None:
@@ -1062,8 +1139,8 @@ class GameEngine:
             self._boss_banner_ttl = 2.5
             self._glitch_intensity = 1.0
             self._play_sfx("boss_warn")
-            if self._sfx is not None:
-                self._sfx.start_music("boss")
+            if self._sfx is not None and boss is not None:
+                self._sfx.start_music(self._boss_music_track(boss))
             label = boss.crash_label if boss is not None else "BOSS"
             self._console.kernel(f"!! BOSS PROCESS LOADED: {label} !!", LogLevel.CRIT)
         elif not self._boss_active and was_active:

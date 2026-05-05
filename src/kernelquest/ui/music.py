@@ -39,6 +39,7 @@ ALL_STEMS: tuple[str, ...] = (
     "tension_low",
     "tension_pad",
     "boss",
+    "safe",
 )
 
 #: Maximum stems active simultaneously when reduce-motion is enabled.
@@ -74,10 +75,22 @@ class StemMixer:
         *,
         boss_active: bool,
         reduce_motion: bool = False,
+        safe_zone: bool = False,
     ) -> None:
-        """Recompute target volumes from the current visible archetypes."""
+        """Recompute target volumes from the current visible archetypes.
+
+        If ``safe_zone`` is set (no living enemies anywhere on the map and no
+        boss active) the mixer crossfades to the dedicated ``safe`` stem and
+        mutes everything else, signalling to the player that the sector is
+        cleared.
+        """
         new_targets = {stem: 0.0 for stem in ALL_STEMS}
         new_targets["bed"] = 1.0
+        if safe_zone and not boss_active:
+            new_targets["safe"] = 1.0
+            new_targets["bed"] = 0.6
+            self.targets = new_targets
+            return
         if boss_active:
             new_targets["boss"] = 1.0
         for arc in archetypes:

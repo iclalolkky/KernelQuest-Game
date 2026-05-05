@@ -10,9 +10,10 @@ from kernelquest.core.config import (
     PLAYER_BASE_DAMAGE,
 )
 from kernelquest.entities.affix import on_death as _affix_on_death
+from kernelquest.entities.boss_phases import BossPhase, phase_for_hp, phases_for
 from kernelquest.entities.damage import DamageType, label_for_factor
 from kernelquest.entities.items import ALL_ITEM_IDS
-from kernelquest.entities.malware import Malware
+from kernelquest.entities.malware import DeadlockTwin, Malware, RootkitHydra, TheLeak
 from kernelquest.entities.malware_registry import maybe_get as get_species
 from kernelquest.entities.player import Player
 from kernelquest.world.world import World
@@ -31,6 +32,8 @@ class AttackResult:
     damage_type: DamageType = DamageType.KINETIC
     effectiveness: float = 1.0
     program_key: str = "bump"
+    phase_advanced: BossPhase | None = None
+    """Phase 9 — set when this hit pushed the boss into a new phase."""
 
 
 def resolve_damage(target: Malware, raw_damage: int, kind: DamageType) -> tuple[int, float]:
@@ -66,7 +69,37 @@ def player_attack(
     """
     final, factor = resolve_damage(target, damage, damage_type)
     target.take_damage(final)
+    if isinstance(target, TheLeak) and final > 0:
+        target.last_damaged_turn = world.turn_counter
+    # Phase 9 — DeadlockTwin healing: damaging one twin heals its partner
+    # unless the partner was also hit this same turn.
+    if isinstance(target, DeadlockTwin) and final > 0:
+        target.attacked_this_turn = True
+        for other in world.enemies:
+            if (
+                isinstance(other, DeadlockTwin)
+                and other is not target
+                and other.is_alive
+                and not other.attacked_this_turn
+            ):
+                other.hp = min(other.max_hp, other.hp + final)
+    # Phase 9 — RootkitHydra split: non-signal kill grows another head.
+    if isinstance(target, RootkitHydra) and not target.is_alive:
+        if damage_type is DamageType.SIGNAL:
+            target.heads_remaining = max(0, target.heads_remaining - 1)
+        else:
+            target.heads_remaining += 1
+        if target.heads_remaining > 0:
+            target.hp = max(1, target.max_hp // 2)
     killed = not target.is_alive
+    # Phase 9 — boss-phase advancement.
+    phase_advanced: BossPhase | None = None
+    phases = phases_for(target.species_key)
+    if phases:
+        new_idx = phase_for_hp(phases, target.hp, target.max_hp)
+        if new_idx > target.phase_index:
+            target.phase_index = new_idx
+            phase_advanced = phases[new_idx]
     score = target.score_value if killed else 0
     if killed:
         # Apply affix score multiplier so tougher mobs award more.
@@ -104,6 +137,7 @@ def player_attack(
         damage_type=damage_type,
         effectiveness=factor,
         program_key=program_key,
+        phase_advanced=phase_advanced,
     )
 
 

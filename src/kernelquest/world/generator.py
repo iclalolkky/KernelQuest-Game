@@ -21,13 +21,14 @@ from kernelquest.core.config import (
     ROOM_MAX_ATTEMPTS,
     ROOM_MAX_SIZE,
     ROOM_MIN_SIZE,
-    SEGFAULT_DEPTH,
 )
 from kernelquest.entities.affix import apply_at_spawn, roll_affixes
 from kernelquest.entities.items import ALL_ITEM_IDS
 from kernelquest.entities.malware import (
     Bruiser,
+    BufferOverflowBoss,
     Daemonizer,
+    DeadlockTwin,
     ForkBomb,
     IndexError_,
     KernelPanic,
@@ -35,13 +36,17 @@ from kernelquest.entities.malware import (
     Malware,
     NullPointer,
     RaceCondition,
+    RootkitHydra,
     RuntimeError_,
     SegFault,
     StackOverflow,
     SyntaxError_,
+    TheLeak,
+    ZeroDayBoss,
     ZombieProcess,
 )
 from kernelquest.entities.player import Player
+from kernelquest.world.boss_arenas import BossArena, load_arena
 from kernelquest.world.grid import MemoryGrid
 from kernelquest.world.tile import TileType
 from kernelquest.world.world import World
@@ -93,6 +98,13 @@ def generate_world(
 
     _connect_rooms(grid, rooms)
     _scatter_bad_sectors(grid, rooms, rng)
+
+    # Phase 9 — boss arena override.
+    boss_key = _which_boss(depth)
+    if boss_key is not None:
+        arena = load_arena(boss_key)
+        if arena is not None:
+            return _build_boss_world(player, depth, rng, arena, boss_key)
 
     # Place the player in the first room.
     spawn = rooms[0].center
@@ -191,21 +203,32 @@ def _spawn_enemies(
         candidate_positions.extend(room.inner_tiles())
     rng.shuffle(candidate_positions)
 
-    # Boss every KERNEL_PANIC_DEPTH levels.
-    if depth >= KERNEL_PANIC_DEPTH and depth % KERNEL_PANIC_DEPTH == 0:
+    # Phase 9 — boss every KERNEL_PANIC_DEPTH levels via the boss wheel.
+    boss_key = _which_boss(depth)
+    if boss_key is not None:
         for pos in candidate_positions:
-            if pos not in occupied:
-                boss: Malware
-                if depth >= SEGFAULT_DEPTH and depth % SEGFAULT_DEPTH == 0:
-                    boss = SegFault(position=pos)
-                else:
-                    boss = KernelPanic(position=pos)
-                # Bosses keep an empty affix list; ``roll_affixes`` is the gate.
-                boss.affixes.keys = roll_affixes(rng, depth=depth, is_boss=True)
-                apply_at_spawn(boss, rng)
-                enemies.append(boss)
+            if pos in occupied:
+                continue
+            if boss_key == "deadlock_twin":
+                # Deadlock spawns paired; pick a second position too.
+                second = _second_open_position(candidate_positions, occupied | {pos})
+                if second is None:
+                    second = pos  # degenerate
+                twin_a = DeadlockTwin(position=pos, twin_id=0)
+                twin_b = DeadlockTwin(position=second, twin_id=1)
+                for tw in (twin_a, twin_b):
+                    tw.affixes.keys = roll_affixes(rng, depth=depth, is_boss=True)
+                    apply_at_spawn(tw, rng)
+                enemies.extend([twin_a, twin_b])
                 occupied.add(pos)
+                occupied.add(second)
                 break
+            boss = _boss_factory(boss_key, pos)
+            boss.affixes.keys = roll_affixes(rng, depth=depth, is_boss=True)
+            apply_at_spawn(boss, rng)
+            enemies.append(boss)
+            occupied.add(pos)
+            break
 
     for pos in candidate_positions:
         if len(enemies) >= target_count:
@@ -271,3 +294,82 @@ def _spawn_items(
         items[pos] = rng.choice(ALL_ITEM_IDS)
         occupied.add(pos)
     return items
+
+
+# ---------------------------------------------------------------------------
+# Phase 9 — boss wheel + arena helpers.
+# ---------------------------------------------------------------------------
+
+
+_BOSS_WHEEL: tuple[str, ...] = (
+    "kernel_panic",
+    "segfault",
+    "buffer_overflow",
+    "rootkit_hydra",
+    "deadlock_twin",
+    "the_leak",
+)
+
+
+def _which_boss(depth: int) -> str | None:
+    """Return the boss species_key scheduled for ``depth`` (or ``None``)."""
+    if depth < KERNEL_PANIC_DEPTH or depth % KERNEL_PANIC_DEPTH != 0:
+        return None
+    idx = (depth // KERNEL_PANIC_DEPTH - 1) % len(_BOSS_WHEEL)
+    return _BOSS_WHEEL[idx]
+
+
+def _boss_factory(key: str, pos: tuple[int, int]) -> Malware:
+    if key == "segfault":
+        return SegFault(position=pos)
+    if key == "the_leak":
+        return TheLeak(position=pos)
+    if key == "rootkit_hydra":
+        return RootkitHydra(position=pos)
+    if key == "buffer_overflow":
+        return BufferOverflowBoss(position=pos)
+    if key == "deadlock_twin":
+        return DeadlockTwin(position=pos)
+    if key == "zero_day":
+        return ZeroDayBoss(position=pos)
+    return KernelPanic(position=pos)
+
+
+def _second_open_position(
+    candidates: list[tuple[int, int]], occupied: set[tuple[int, int]]
+) -> tuple[int, int] | None:
+    for cand in candidates:
+        if cand not in occupied:
+            return cand
+    return None
+
+
+def _build_boss_world(
+    player: Player,
+    depth: int,
+    rng: random.Random,
+    arena: BossArena,
+    boss_key: str,
+) -> World:
+    """Lay the player + boss into a pre-authored arena grid."""
+    grid = arena.grid
+    player.position = arena.player_spawn
+    grid.set(*arena.exit_pos, TileType.EXIT)
+    enemies: list[Malware] = []
+    pos = arena.boss_spawn
+    if boss_key == "deadlock_twin":
+        # Place the second twin on the opposite axis.
+        sx, sy = pos
+        second = (max(1, sx - 2), sy)
+        twin_a = DeadlockTwin(position=pos, twin_id=0)
+        twin_b = DeadlockTwin(position=second, twin_id=1)
+        for tw in (twin_a, twin_b):
+            tw.affixes.keys = roll_affixes(rng, depth=depth, is_boss=True)
+            apply_at_spawn(tw, rng)
+        enemies.extend([twin_a, twin_b])
+    else:
+        boss = _boss_factory(boss_key, pos)
+        boss.affixes.keys = roll_affixes(rng, depth=depth, is_boss=True)
+        apply_at_spawn(boss, rng)
+        enemies.append(boss)
+    return World(grid=grid, player=player, enemies=enemies, items={}, depth=depth)

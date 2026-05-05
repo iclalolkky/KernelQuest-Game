@@ -371,41 +371,41 @@ This roadmap breaks the project into four phases, each with concrete, testable d
 
 ---
 
-## Phase 9 — Boss Spectacle & Pantheon 👑
+## Phase 9 — Boss Spectacle & Pantheon 👑 ✅
 
 **Goal:** Bosses become *events*. Each fight has its own arena, music swap, multi-phase script, and signature mechanic the player has to *learn*.
 
 ### 9.1 Boss framework
-- [ ] `BossEncounter` class encapsulating: arena dimensions, intro cinematic, phase script, music stem, defeat reward, lore beat.
-- [ ] Boss arenas are dedicated pre-authored sub-grids (not pure proc-gen) loaded from `data/boss_arenas/*.json`.
-- [ ] Boss intro: camera pans, screen letterboxes, title card ("`KERNEL_PANIC.exe` — pid 1"), HP bar slides up across the top of the screen.
-- [ ] Boss HP bar: large, segmented per phase, with phase names.
+- [x] `BossEncounter` class encapsulating: arena dimensions, intro cinematic, phase script, music stem, defeat reward, lore beat.
+- [x] Boss arenas are dedicated pre-authored sub-grids (not pure proc-gen) loaded from `data/boss_arenas/*.json`.
+- [x] Boss intro: camera pans, screen letterboxes, title card ("`KERNEL_PANIC.exe` — pid 1"), HP bar slides up across the top of the screen.
+- [x] Boss HP bar: large, segmented per phase, with phase names.
 
 ### 9.2 New boss roster (target: 6 total)
 Existing: `KernelPanic`, `SegFault`. Add at least 4 more:
-- [ ] `THE_LEAK` (final boss, Phase 7 antagonist): grows in size each turn it isn't damaged; arena tiles slowly corrupt.
-- [ ] `DeadlockTwins` — paired bosses; damaging one heals the other unless attacked on the same turn.
-- [ ] `RootkitHydra` — single body with 3 heads; killing a head spawns 2 unless killed by a `signal` program.
-- [ ] `BufferOverflow` — fills the arena with projectile data-blocks every 3 turns; player must hide behind `SYSTEM_DATA` cover.
-- [ ] (stretch) `ZeroDay` — secret boss unlocked after collecting all `Lore` codex entries.
+- [x] `THE_LEAK` (final boss, Phase 7 antagonist): grows in size each turn it isn't damaged; arena tiles slowly corrupt.
+- [x] `DeadlockTwins` — paired bosses; damaging one heals the other unless attacked on the same turn.
+- [x] `RootkitHydra` — single body with 3 heads; killing a head spawns 2 unless killed by a `signal` program.
+- [x] `BufferOverflow` — fills the arena with projectile data-blocks every 3 turns; player must hide behind `SYSTEM_DATA` cover.
+- [x] (stretch) `ZeroDay` — secret boss unlocked after collecting all `Lore` codex entries.
 
 ### 9.3 Phase scripting
-- [ ] Each boss has 2–4 explicit phases with HP thresholds, an entry telegraph, and a unique attack pattern.
-- [ ] Phase transitions trigger: screen flash, console-log warning, music stem swap inside the boss layer.
-- [ ] Boss patterns are deterministic given the run seed (so they're learnable, not random).
+- [x] Each boss has 2–4 explicit phases with HP thresholds, an entry telegraph, and a unique attack pattern.
+- [x] Phase transitions trigger: screen flash, console-log warning, music stem swap inside the boss layer.
+- [x] Boss patterns are deterministic given the run seed (so they're learnable, not random).
 
 ### 9.4 Audio for bosses
-- [ ] Each boss owns a dedicated track (not a stem) that *replaces* the adaptive bed for the duration of the fight, then crossfades back on victory/defeat.
-- [ ] Phase-specific overlay stems (e.g. `THE_LEAK` adds a distortion layer in phase 3).
+- [x] Each boss owns a dedicated track (not a stem) that *replaces* the adaptive bed for the duration of the fight, then crossfades back on victory/defeat.
+- [x] Phase-specific overlay stems (e.g. `THE_LEAK` adds a distortion layer in phase 3).
 
 ### 9.5 Rewards & progression hooks
-- [ ] First kill of each boss unlocks: a Daemon, a Lore entry, and a permanent Bestiary trophy.
-- [ ] Subsequent kills award scaling `bits` + a chance at a unique Patch card.
-- [ ] Boss kill telemetry feeds the success criteria for distros (Phase 11).
+- [x] First kill of each boss unlocks: a Daemon, a Lore entry, and a permanent Bestiary trophy.
+- [x] Subsequent kills award scaling `bits` + a chance at a unique Patch card.
+- [x] Boss kill telemetry feeds the success criteria for distros (Phase 11).
 
 ### 9.6 Tests
-- [ ] Snapshot tests on phase scripts (given seed S and player actions A, boss reaches phase X at turn Y).
-- [ ] Audio-mixer test confirming boss track replaces bed during encounter.
+- [x] Snapshot tests on phase scripts (given seed S and player actions A, boss reaches phase X at turn Y).
+- [x] Audio-mixer test confirming boss track replaces bed during encounter.
 
 **Exit criteria:** Encountering any boss triggers a recognizable event — different arena, different music, telegraphed phases — and beating one for the first time feels like a milestone the player wants to brag about.
 

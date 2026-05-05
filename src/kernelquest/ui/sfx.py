@@ -82,6 +82,66 @@ _TRACK_TUTORIAL: Final[tuple[int, ...]] = (
     262,
     196,
 )
+_TRACK_SAFE: Final[tuple[int, ...]] = (
+    330,
+    392,
+    440,
+    523,
+    440,
+    392,
+    330,
+    262,
+)
+_TRACK_THE_LEAK: Final[tuple[int, ...]] = (
+    98,
+    98,
+    131,
+    98,
+    110,
+    98,
+    147,
+    98,
+)
+_TRACK_DEADLOCK: Final[tuple[int, ...]] = (
+    147,
+    220,
+    147,
+    220,
+    147,
+    220,
+    175,
+    220,
+)
+_TRACK_HYDRA: Final[tuple[int, ...]] = (
+    131,
+    165,
+    196,
+    165,
+    131,
+    98,
+    131,
+    165,
+)
+_TRACK_BUFFER: Final[tuple[int, ...]] = (
+    220,
+    110,
+    220,
+    110,
+    330,
+    110,
+    220,
+    110,
+)
+_TRACK_ZERO_DAY: Final[tuple[int, ...]] = (
+    175,
+    220,
+    277,
+    330,
+    277,
+    220,
+    175,
+    147,
+)
 
 
 def _square_wave(frequency: float, duration_ms: int) -> bytes:
@@ -180,6 +240,12 @@ class SoundManager:
                     "variant": pygame.mixer.Sound(buffer=_build_loop(_TRACK_VARIANT_A)),
                     "boss": pygame.mixer.Sound(buffer=_build_loop(_TRACK_BOSS)),
                     "tutorial": pygame.mixer.Sound(buffer=_build_loop(_TRACK_TUTORIAL)),
+                    "safe": pygame.mixer.Sound(buffer=_build_loop(_TRACK_SAFE)),
+                    "the_leak": pygame.mixer.Sound(buffer=_build_loop(_TRACK_THE_LEAK)),
+                    "deadlock": pygame.mixer.Sound(buffer=_build_loop(_TRACK_DEADLOCK)),
+                    "hydra": pygame.mixer.Sound(buffer=_build_loop(_TRACK_HYDRA)),
+                    "buffer_overflow": pygame.mixer.Sound(buffer=_build_loop(_TRACK_BUFFER)),
+                    "zero_day": pygame.mixer.Sound(buffer=_build_loop(_TRACK_ZERO_DAY)),
                 }
                 self._music_channel = pygame.mixer.Channel(7)
             except pygame.error:  # pragma: no cover
@@ -248,6 +314,11 @@ class SoundManager:
             self._current_track = track
         except pygame.error:  # pragma: no cover
             self._music_playing = False
+
+    @property
+    def current_track(self) -> str | None:
+        """Phase 9 — returns the currently looping track key (or ``None``)."""
+        return self._current_track
 
     def stop_music(self) -> None:
         if self._music_channel is not None and self._music_playing:

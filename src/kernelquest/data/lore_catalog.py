@@ -139,6 +139,47 @@ CATALOG: Final[tuple[LoreEntry, ...]] = (
         unlock_condition="cause_SegFault",
     ),
     LoreEntry(
+        key="boss_the_leak",
+        title="0x0C — On TheLeak",
+        body=(
+            "It does not chase. It accumulates.\n"
+            "Every byte you fail to free becomes part of its body."
+        ),
+        unlock_condition="boss_the_leak",
+    ),
+    LoreEntry(
+        key="boss_deadlock",
+        title="0x0D — On DeadlockTwins",
+        body=("Two processes, each waiting for the other.\n" "Don't pick a side — strike both."),
+        unlock_condition="boss_deadlock_twin",
+    ),
+    LoreEntry(
+        key="boss_hydra",
+        title="0x0E — On RootkitHydra",
+        body=(
+            "A clean kill takes a `signal`.\n"
+            "Anything else just asks the kernel for two more heads."
+        ),
+        unlock_condition="boss_rootkit_hydra",
+    ),
+    LoreEntry(
+        key="boss_buffer",
+        title="0x0F — On BufferOverflow",
+        body=(
+            "It writes past the end of every protected page.\n"
+            "Stand behind `SYSTEM_DATA`. Trust the wall."
+        ),
+        unlock_condition="boss_buffer_overflow",
+    ),
+    LoreEntry(
+        key="boss_zero_day",
+        title="0x10 — On ZeroDay",
+        body=(
+            "Patch notes don't exist for what hasn't been disclosed.\n" "You shouldn't be here yet."
+        ),
+        unlock_condition="boss_zero_day",
+    ),
+    LoreEntry(
         key="true_ending",
         title="0xFF — End of File",
         body=(
