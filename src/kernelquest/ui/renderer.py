@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import random
-from typing import Final, cast
+from typing import TYPE_CHECKING, Final, cast
 
 import pygame
 
@@ -19,7 +19,7 @@ from kernelquest.core.config import (
 from kernelquest.entities.items import get_item
 from kernelquest.entities.malware import KernelPanic, LogicBomb, Malware, SyntaxError_
 from kernelquest.entities.player import Player
-from kernelquest.ui import theme
+from kernelquest.ui import glyphs, theme
 from kernelquest.ui.cinematics import CinematicPlayer, render_cinematic
 from kernelquest.ui.console_log import ConsoleLog, LogLevel
 from kernelquest.ui.fx import ParticleSystem, ScreenShake
@@ -34,6 +34,10 @@ from kernelquest.ui.sprites import (
 from kernelquest.ui.viewport import Viewport
 from kernelquest.world.tile import TileType
 from kernelquest.world.world import World
+
+if TYPE_CHECKING:
+    from kernelquest.core.states.menu_map_state import Kiosk
+    from kernelquest.ui.dialogue import DialogueScene
 
 _TILE_COLOR_KEYS: dict[TileType, str] = {
     TileType.EMPTY: "TILE_EMPTY",
@@ -95,6 +99,9 @@ TUTORIAL_PAGE_COUNT: Final[int] = len(_TUTORIAL_PAGE_TITLE_KEYS)
 
 
 _CONSOLE_HEIGHT = 120
+# Phase 12.4 — dedicated bottom-bar above the console for keybind hints, so
+# they no longer get drawn on top of map tiles.
+_BOTTOM_BAR_HEIGHT = 28
 
 
 def _dim(color: tuple[int, int, int], factor: float) -> tuple[int, int, int]:
@@ -184,12 +191,65 @@ class UIManager:
             self.screen.blit(surface, surface.get_rect(center=(cx, cy)))
 
     def render_enemies(self, world: World, viewport: Viewport) -> None:
+        # Phase 12.4 — AoE preview gated by the ``tcpdump`` daemon.
+        if any(d.key == "tcpdump" for d in world.player.daemons):
+            self._render_aoe_overlays(world, viewport)
         for enemy in world.enemies:
             if not enemy.is_alive:
                 continue
             if world.visible and enemy.position not in world.visible:
                 continue
             self._render_enemy(enemy, viewport)
+
+    def _render_aoe_overlays(self, world: World, viewport: Viewport) -> None:
+        """Phase 12.4 — telegraph dangerous tiles for Sapper / Caster mobs.
+
+        Activated only when the player has the ``tcpdump`` daemon equipped.
+        Sappers (``LogicBomb``) detonate within a 1-tile radius; Casters
+        (``StackOverflow`` / ``NullPointer``) hit along the player's axis up to
+        4 tiles. The overlay is a low-alpha amber tint so it reads as a
+        "warning zone" without obscuring the tile underneath.
+        """
+        from kernelquest.entities.malware_registry import maybe_get as _species
+
+        for enemy in world.enemies:
+            if not enemy.is_alive:
+                continue
+            if world.visible and enemy.position not in world.visible:
+                continue
+            species = _species(enemy.species_key)
+            archetype = species.archetype if species is not None else ""
+            tiles: list[tuple[int, int]] = []
+            color = (255, 170, 60)
+            if isinstance(enemy, LogicBomb) or archetype == "Sapper":
+                ex, ey = enemy.position
+                for dx in (-1, 0, 1):
+                    for dy in (-1, 0, 1):
+                        tiles.append((ex + dx, ey + dy))
+                color = (255, 90, 90)
+            elif archetype == "Caster":
+                ex, ey = enemy.position
+                px, py = world.player.position
+                # Project from enemy toward player along the dominant axis.
+                dx = (px - ex) and (1 if px > ex else -1)
+                dy = (py - ey) and (1 if py > ey else -1)
+                if abs(px - ex) >= abs(py - ey):
+                    dy = 0
+                else:
+                    dx = 0
+                if dx == 0 and dy == 0:
+                    continue
+                for step in range(1, 5):
+                    tiles.append((ex + dx * step, ey + dy * step))
+            for tx, ty in tiles:
+                if not world.grid.in_bounds(tx, ty):
+                    continue
+                if world.visible and (tx, ty) not in world.visible:
+                    continue
+                sx, sy = viewport.to_screen(tx, ty)
+                surf = pygame.Surface((viewport.tile_size, viewport.tile_size), pygame.SRCALPHA)
+                surf.fill((*color, 60))
+                self.screen.blit(surf, (sx, sy))
 
     def _render_enemy(self, enemy: Malware, viewport: Viewport) -> None:
         sx, sy = viewport.to_screen(*enemy.position)
@@ -202,6 +262,20 @@ class UIManager:
             font_small=self.font_small,
             font_body=self.font_body,
         )
+        # Phase 12.4 — HP bar above the enemy sprite (hidden when full).
+        if enemy.hp < enemy.max_hp and enemy.max_hp > 0:
+            bar_w = max(8, viewport.tile_size - 4)
+            bar_h = 3
+            bar_x = rect.x + (rect.width - bar_w) // 2
+            bar_y = rect.y - bar_h - 2
+            ratio = max(0.0, min(1.0, enemy.hp / enemy.max_hp))
+            bg = pygame.Rect(bar_x, bar_y, bar_w, bar_h)
+            fg = pygame.Rect(bar_x, bar_y, int(bar_w * ratio), bar_h)
+            pygame.draw.rect(self.screen, (40, 0, 0), bg)
+            color = (
+                (90, 220, 110) if ratio > 0.6 else (240, 200, 70) if ratio > 0.3 else (240, 80, 80)
+            )
+            pygame.draw.rect(self.screen, color, fg)
 
     def render_player(self, player: Player, viewport: Viewport) -> None:
         sx, sy = viewport.to_screen(*player.position)
@@ -234,10 +308,14 @@ class UIManager:
         patches: list[str] | None = None,
     ) -> None:
         panel_x = WINDOW_WIDTH - 280
-        panel_rect = pygame.Rect(panel_x, 16, 264, WINDOW_HEIGHT - 32 - _CONSOLE_HEIGHT)
+        panel_rect = pygame.Rect(
+            panel_x, 16, 264, WINDOW_HEIGHT - 32 - _CONSOLE_HEIGHT - _BOTTOM_BAR_HEIGHT
+        )
         # Glassmorphism: translucent panel.
         glass = pygame.Surface(panel_rect.size, pygame.SRCALPHA)
-        glass.fill((*theme.PANEL_BG, 215))
+        # Phase 12.4 — bumped from 215 to 248 so world tiles don't bleed
+        # through and clash with HUD text.
+        glass.fill((*theme.PANEL_BG, 248))
         self.screen.blit(glass, panel_rect.topleft)
         pygame.draw.rect(self.screen, theme.NEON_CYAN, panel_rect, width=1, border_radius=8)
 
@@ -276,6 +354,19 @@ class UIManager:
         y += HUD_CPU_WAVE_HEIGHT + 6
 
         self._blit_text(f"SCORE   : {player.score:,}", (x, y), theme.TEXT_PRIMARY, self.font_body)
+        y += 22
+
+        # Phase 12.4 — base damage + damage-dealt-this-turn popover.
+        dmg_color = theme.NEON_AMBER if player.damage_dealt_this_turn > 0 else theme.TEXT_PRIMARY
+        dmg_suffix = (
+            f"  (+{player.damage_dealt_this_turn})" if player.damage_dealt_this_turn > 0 else ""
+        )
+        self._blit_text(
+            f"DAMAGE  : {player.base_damage}{dmg_suffix}",
+            (x, y),
+            dmg_color,
+            self.font_body,
+        )
         y += 24
 
         self._blit_text(
@@ -360,17 +451,186 @@ class UIManager:
         self._render_minimap(world, (x, y))
         y += world.grid.height * HUD_MINIMAP_TILE + 12
 
-        hints = [
-            "[↑/↓/←/→] move / attack",
-            "[space]    wait",
-            "[Q/E/R]    programs",
-            "[1..9]     use cache slot",
-            "[?]        controls",
-            "[esc]      quit run",
-        ]
-        hint_y = panel_rect.bottom - 18 * len(hints) - 12
-        for offset, text in enumerate(hints):
-            self._blit_text(text, (x, hint_y + offset * 18), theme.TEXT_DIM, self.font_small)
+        # Phase 12.4 — keybind hints moved to dedicated bottom-bar widget
+        # (see ``render_bottom_bar``) so they no longer overlap the play area.
+
+    def render_ladder_strip(
+        self,
+        progress: object | None,
+        origin: tuple[int, int],
+    ) -> None:
+        """Phase 12.7 — vertical 8-release × 3-milestone ladder strip.
+
+        Lives inside the HUD column so the player always knows how many
+        Releases remain. Boss milestones get a skull glyph; cleared cells
+        glow green; skipped cells amber; the active cell pulses cyan.
+        """
+        if progress is None:
+            return
+        from kernelquest.core.run_progress import (
+            MILESTONES_PER_RELEASE,
+            TOTAL_RELEASES,
+            MilestoneKind,
+        )
+
+        ox, oy = origin
+        cell = 14
+        gap = 2
+        title = self.font_small.render("RELEASES", True, theme.NEON_CYAN)
+        self.screen.blit(title, (ox, oy))
+        oy += title.get_height() + 4
+
+        records = list(getattr(progress, "records", []))
+        cur_release = int(getattr(progress, "release_index", 0))
+        cur_milestone = int(getattr(progress, "milestone_index", 0))
+
+        for r in range(TOTAL_RELEASES):
+            for m in range(MILESTONES_PER_RELEASE):
+                rect = pygame.Rect(
+                    ox + m * (cell + gap),
+                    oy + r * (cell + gap),
+                    cell,
+                    cell,
+                )
+                rec = next(
+                    (
+                        x
+                        for x in records
+                        if getattr(x, "release_index", -1) == r
+                        and getattr(x, "milestone_index", -1) == m
+                    ),
+                    None,
+                )
+                cleared = bool(getattr(rec, "was_cleared", False))
+                skipped = bool(getattr(rec, "was_skipped", False))
+                is_boss = m == 2
+                is_active = r == cur_release and m == cur_milestone
+
+                if cleared:
+                    color = theme.NEON_GREEN
+                elif skipped:
+                    color = theme.NEON_AMBER
+                elif is_active:
+                    color = theme.NEON_CYAN
+                else:
+                    color = theme.GRID_LINE
+                pygame.draw.rect(self.screen, color, rect, border_radius=2)
+                if not (cleared or skipped or is_active):
+                    inner = rect.inflate(-2, -2)
+                    pygame.draw.rect(self.screen, theme.PANEL_BG, inner, border_radius=2)
+                if is_boss:
+                    glyph_color = theme.BACKGROUND if (cleared or is_active) else color
+                    glyph = self.font_small.render("X", True, glyph_color)
+                    self.screen.blit(glyph, glyph.get_rect(center=rect.center))
+                if is_active:
+                    pygame.draw.rect(
+                        self.screen, theme.NEON_MAGENTA, rect, width=1, border_radius=2
+                    )
+                _ = MilestoneKind  # silence unused-import lint
+
+    def render_ladder_overlay(self, progress: object | None) -> None:
+        """Phase 12.7 — fullscreen ladder with target scores (toggle: ``L``)."""
+        if progress is None:
+            return
+        from kernelquest.core.run_progress import (
+            MILESTONES_PER_RELEASE,
+            TOTAL_RELEASES,
+            target_score_for,
+        )
+        from kernelquest.ui.i18n import t
+
+        overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 220))
+        self.screen.blit(overlay, (0, 0))
+
+        cx = WINDOW_WIDTH // 2
+        title = self.font_title.render(t("ladder.title"), True, theme.NEON_CYAN)
+        self.screen.blit(title, title.get_rect(center=(cx, 64)))
+
+        records = list(getattr(progress, "records", []))
+        cur_release = int(getattr(progress, "release_index", 0))
+        cur_milestone = int(getattr(progress, "milestone_index", 0))
+
+        col_w = 220
+        row_h = 28
+        table_w = col_w * 3
+        ox = cx - table_w // 2
+        oy = 120
+
+        # Header row.
+        hdr_color = theme.NEON_AMBER
+        for i, header in enumerate(("Sector A", "Sector B", "BOSS")):
+            head = self.font_body.render(header, True, hdr_color)
+            self.screen.blit(head, (ox + i * col_w + 16, oy))
+        oy += row_h
+
+        for r in range(TOTAL_RELEASES):
+            label = self.font_small.render(f"R{r:02d}", True, theme.TEXT_DIM)
+            self.screen.blit(label, (ox - 40, oy + 4))
+            for m in range(MILESTONES_PER_RELEASE):
+                rect = pygame.Rect(ox + m * col_w + 8, oy, col_w - 16, row_h - 4)
+                rec = next(
+                    (
+                        x
+                        for x in records
+                        if getattr(x, "release_index", -1) == r
+                        and getattr(x, "milestone_index", -1) == m
+                    ),
+                    None,
+                )
+                cleared = bool(getattr(rec, "was_cleared", False))
+                skipped = bool(getattr(rec, "was_skipped", False))
+                is_active = r == cur_release and m == cur_milestone
+                color = (
+                    theme.NEON_GREEN
+                    if cleared
+                    else (
+                        theme.NEON_AMBER
+                        if skipped
+                        else theme.NEON_CYAN if is_active else theme.GRID_LINE
+                    )
+                )
+                pygame.draw.rect(self.screen, color, rect, width=1, border_radius=4)
+                tgt = target_score_for(r, m)
+                reached = int(getattr(rec, "reached_score", 0)) if rec is not None else 0
+                tag = (
+                    t("ladder.cleared")
+                    if cleared
+                    else (
+                        t("ladder.skipped")
+                        if skipped
+                        else t("ladder.boss") if m == 2 and is_active else t("ladder.target")
+                    )
+                )
+                txt = self.font_small.render(f"{tag}: {reached}/{tgt}", True, theme.TEXT_PRIMARY)
+                self.screen.blit(txt, txt.get_rect(midleft=(rect.x + 8, rect.centery)))
+            oy += row_h
+
+        sub = self.font_small.render("[L] close", True, theme.TEXT_DIM)
+        self.screen.blit(sub, sub.get_rect(center=(cx, WINDOW_HEIGHT - 48)))
+
+    def render_bottom_bar(self, hints: list[str]) -> None:
+        """Phase 12.4 — keybind hints strip above the console.
+
+        Reserves :data:`_BOTTOM_BAR_HEIGHT` pixels at the bottom of the play
+        area so that hint text never overlaps map tiles or HUD widgets.
+        """
+        rect = pygame.Rect(
+            16,
+            WINDOW_HEIGHT - _CONSOLE_HEIGHT - _BOTTOM_BAR_HEIGHT - 12,
+            WINDOW_WIDTH - 312,
+            _BOTTOM_BAR_HEIGHT,
+        )
+        glass = pygame.Surface(rect.size, pygame.SRCALPHA)
+        glass.fill((*theme.PANEL_BG, 230))
+        self.screen.blit(glass, rect.topleft)
+        pygame.draw.rect(self.screen, theme.GRID_LINE, rect, width=1, border_radius=4)
+
+        if not hints:
+            return
+        text = glyphs.sanitize(self.font_small, "   ".join(hints))
+        surface = self.font_small.render(text, True, theme.TEXT_DIM)
+        self.screen.blit(surface, surface.get_rect(midleft=(rect.x + 12, rect.centery)))
 
     def render_console(self, log: ConsoleLog) -> None:
         rect = pygame.Rect(
@@ -459,6 +719,143 @@ class UIManager:
         # Footer hint — translated.
         hint = self.font_small.render(
             t("menu.hint"),
+            True,
+            theme.TEXT_DIM,
+        )
+        self.screen.blit(hint, hint.get_rect(center=(cx, WINDOW_HEIGHT - 40)))
+
+    def render_tabbed_hub(
+        self,
+        title: str,
+        tabs: list[str],
+        selected: int,
+        descriptions: list[str] | None = None,
+    ) -> None:
+        """Phase 12.6 — render a tabbed sub-menu hub.
+
+        ``tabs`` is the list of localized tab labels; ``selected`` is the
+        active index. ``descriptions`` (if provided) supplies a body blurb per
+        tab that is shown below the tab strip.
+        """
+        from kernelquest.ui.i18n import t
+
+        self.clear()
+        self._render_menu_background()
+        cx = WINDOW_WIDTH // 2
+
+        # Title.
+        title_surface = self.font_title.render(title, True, theme.NEON_CYAN)
+        self.screen.blit(title_surface, title_surface.get_rect(center=(cx, 140)))
+
+        # Tab strip.
+        if not tabs:
+            return
+        strip_y = 230
+        gap = 24
+        widths = [self.font_body.size(label)[0] + 36 for label in tabs]
+        total_w = sum(widths) + gap * (len(tabs) - 1)
+        x = cx - total_w // 2
+        for i, label in enumerate(tabs):
+            w = widths[i]
+            rect = pygame.Rect(x, strip_y, w, 36)
+            is_sel = i == selected
+            color = theme.NEON_CYAN if is_sel else theme.TEXT_DIM
+            if is_sel:
+                fill = pygame.Surface(rect.size, pygame.SRCALPHA)
+                fill.fill((*theme.NEON_CYAN, 36))
+                self.screen.blit(fill, rect.topleft)
+            pygame.draw.rect(self.screen, color, rect, 1)
+            txt = self.font_body.render(label, True, color)
+            self.screen.blit(txt, txt.get_rect(center=rect.center))
+            x += w + gap
+
+        # Body description (if any).
+        if descriptions and 0 <= selected < len(descriptions):
+            desc = descriptions[selected]
+            wrap_x = cx - 320
+            y = strip_y + 80
+            # Naive wrap at ~60 chars.
+            line = ""
+            for word in desc.split():
+                trial = (line + " " + word).strip()
+                if self.font_body.size(trial)[0] > 640:
+                    surf = self.font_body.render(line, True, theme.TEXT_PRIMARY)
+                    self.screen.blit(surf, (wrap_x, y))
+                    y += 28
+                    line = word
+                else:
+                    line = trial
+            if line:
+                surf = self.font_body.render(line, True, theme.TEXT_PRIMARY)
+                self.screen.blit(surf, (wrap_x, y))
+
+        # Footer hint.
+        hint = self.font_small.render(
+            t("hub.hint"),
+            True,
+            theme.TEXT_DIM,
+        )
+        self.screen.blit(hint, hint.get_rect(center=(cx, WINDOW_HEIGHT - 40)))
+
+    def render_menu_map(
+        self,
+        kiosks: tuple[Kiosk, ...],
+        avatar_x: int,
+        avatar_y: int,
+        focused_key: str,
+    ) -> None:
+        """Phase 12.5 — Boot Map kiosk scene.
+
+        ``kiosks`` is the immutable :data:`KIOSKS` tuple from
+        :mod:`kernelquest.core.states.menu_map_state`. We avoid importing it
+        at module load to keep the renderer pygame-only.
+        """
+        from kernelquest.ui.i18n import t
+
+        self.clear()
+        self._render_menu_background()
+        cx = WINDOW_WIDTH // 2
+
+        # Title.
+        title_surface = self.font_title.render("KERNEL QUEST", True, theme.NEON_CYAN)
+        self.screen.blit(title_surface, title_surface.get_rect(center=(cx, 120)))
+        sub = self.font_body.render("// boot map — walk and select", True, theme.NEON_AMBER)
+        self.screen.blit(sub, sub.get_rect(center=(cx, 160)))
+
+        # Floor line.
+        floor_y = avatar_y + 28
+        pygame.draw.line(
+            self.screen,
+            theme.NEON_CYAN,
+            (40, floor_y),
+            (WINDOW_WIDTH - 40, floor_y),
+            1,
+        )
+
+        # Kiosks.
+        for kiosk in kiosks:
+            is_focused = kiosk.key == focused_key
+            color = theme.NEON_CYAN if is_focused else theme.TEXT_DIM
+            box_w, box_h = 110, 70
+            box = pygame.Rect(kiosk.x - box_w // 2, floor_y - box_h, box_w, box_h)
+            if is_focused:
+                fill = pygame.Surface(box.size, pygame.SRCALPHA)
+                fill.fill((*theme.NEON_CYAN, 36))
+                self.screen.blit(fill, box.topleft)
+            pygame.draw.rect(self.screen, color, box, 1)
+            # Tiny screen.
+            screen_rect = pygame.Rect(box.x + 12, box.y + 10, box_w - 24, 20)
+            pygame.draw.rect(self.screen, color, screen_rect, 1)
+            # Label below.
+            label = self.font_small.render(t(kiosk.label_key), True, color)
+            self.screen.blit(label, label.get_rect(center=(kiosk.x, box.bottom + 14)))
+
+        # Avatar.
+        self._draw_menu_avatar((avatar_x, avatar_y))
+
+        # Footer hint.
+        hint = self.font_small.render(
+            t("menu_map.hint"),
             True,
             theme.TEXT_DIM,
         )
@@ -600,7 +997,11 @@ class UIManager:
             if line:
                 self._blit_text(line, (rect.x + 16, line_y), theme.TEXT_PRIMARY, self.font_small)
 
-        hint = self.font_body.render("[←/→] choose      [Enter] apply", True, theme.TEXT_DIM)
+        hint = self.font_body.render(
+            glyphs.sanitize(self.font_body, "[←/→] choose      [Enter] apply"),
+            True,
+            theme.TEXT_DIM,
+        )
         self.screen.blit(hint, hint.get_rect(center=(cx, top_y + card_h + 60)))
 
     def render_stats(
@@ -691,7 +1092,7 @@ class UIManager:
             self.screen.blit(msg_surf, msg_surf.get_rect(center=(cx, WINDOW_HEIGHT - 90)))
 
         hint = self.font_small.render(
-            "[↑/↓] select   [enter] buy   [esc] back",
+            glyphs.sanitize(self.font_small, "[↑/↓] select   [enter] buy   [esc] back"),
             True,
             theme.TEXT_DIM,
         )
@@ -713,7 +1114,7 @@ class UIManager:
             y += 32
 
         hint = self.font_small.render(
-            "[↑/↓] select   [←/→] adjust   [esc] back",
+            glyphs.sanitize(self.font_small, "[↑/↓] select   [←/→] adjust   [esc] back"),
             True,
             theme.TEXT_DIM,
         )
@@ -815,6 +1216,31 @@ class UIManager:
         # Faint red tint.
         tint = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
         tint.fill((255, 0, 30, int(40 * intensity)))
+        self.screen.blit(tint, (0, 0))
+
+    def render_phase_shift(self, ttl: float) -> None:
+        """Phase 12.9 — hard flash + letterbox + chromatic recolor.
+
+        ``ttl`` decays from ``0.45`` to ``0.0``; we use it to pick an alpha
+        ramp so the effect peaks instantly and dissolves fast.
+        """
+        if ttl <= 0.0:
+            return
+        ratio = max(0.0, min(1.0, ttl / 0.45))
+        # Hard white flash on the leading edge.
+        flash = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
+        flash.fill((255, 240, 240, int(220 * ratio)))
+        self.screen.blit(flash, (0, 0))
+        # Cinematic letterbox bars sliding in from the top/bottom.
+        bar_h = int(96 * ratio)
+        if bar_h > 0:
+            top = pygame.Surface((WINDOW_WIDTH, bar_h), pygame.SRCALPHA)
+            top.fill((0, 0, 0, 230))
+            self.screen.blit(top, (0, 0))
+            self.screen.blit(top, (0, WINDOW_HEIGHT - bar_h))
+        # Chromatic-aberration tint.
+        tint = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
+        tint.fill((90, 0, 160, int(80 * ratio)))
         self.screen.blit(tint, (0, 0))
 
     def render_scanlines(self) -> None:
@@ -1415,8 +1841,20 @@ class UIManager:
     ) -> None:
         """Render the curriculum panel at the top of the Range scene."""
         # ``lesson`` is a Lesson | None; ``progress`` a LessonProgress.
+        # Phase 12.1 — pull catalog-sourced examples for the active lesson so
+        # the tutorial can never reference an entity that does not ship.
+        examples: tuple[tuple[str, str, str], ...] = ()
+        if lesson is not None:
+            try:
+                from kernelquest.world.tutorial_range import (
+                    lesson_examples as _lesson_examples,
+                )
+
+                examples = _lesson_examples(getattr(lesson, "key", ""))
+            except Exception:
+                examples = ()
         panel_w = 760
-        panel_h = 96
+        panel_h = 96 + (22 * len(examples) if examples else 0)
         panel_x = (WINDOW_WIDTH - panel_w) // 2
         panel_y = 8
         bg = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
@@ -1464,6 +1902,12 @@ class UIManager:
             theme.NEON_AMBER,
         )
         self.screen.blit(hint, (panel_x + 12, panel_y + 66))
+
+        # Phase 12.1 — explain() rows so the tutorial mirrors live catalogs.
+        for row_idx, (kind, label_text, blurb) in enumerate(examples):
+            line = f"{kind}: {label_text} — {blurb}"
+            row = self.font_small.render(line, True, theme.TEXT_PRIMARY)
+            self.screen.blit(row, (panel_x + 12, panel_y + 90 + row_idx * 22))
 
     def render_polygon_overlay(
         self,
@@ -1535,7 +1979,7 @@ class UIManager:
             self.screen.blit(surf, (x, y))
             y += line_h
         hint = self.font_small.render(
-            "[↑/↓] scroll   [pgup/pgdn] page   [esc] back",
+            glyphs.sanitize(self.font_small, "[↑/↓] scroll   [pgup/pgdn] page   [esc] back"),
             True,
             theme.TEXT_DIM,
         )
@@ -1621,18 +2065,57 @@ class UIManager:
             )
 
         hint = self.font_small.render(
-            "[↑/↓] navigate    [esc] back",
+            glyphs.sanitize(self.font_small, "[↑/↓] navigate    [esc] back"),
             True,
             theme.TEXT_DIM,
         )
         self.screen.blit(hint, hint.get_rect(center=(cx, WINDOW_HEIGHT - 40)))
 
-    def render_stack_trace(self, lines: list[tuple[str, str]], sector: int) -> None:
-        """Between-sector "stack trace" interstitial (7.4)."""
+    def render_stack_trace(
+        self,
+        lines: list[tuple[str, str]],
+        sector: int,
+        *,
+        elapsed_ms: int = 10_000,
+    ) -> None:
+        """Between-sector "stack trace" interstitial (Phase 7.4).
+
+        Phase 12.8 — adds a 1.2-second cinematic intro: a typewriter
+        ``cd /sector/0xNN/`` header descends into place before the dialogue
+        lines slide in. Players can press SPACE/ENTER to skip, which simply
+        passes the gameplay flow to the regular handler.
+        """
         self.clear()
         cx = WINDOW_WIDTH // 2
-        title = self.font_title.render(f"-- stack trace -- 0x{sector:02X}", True, theme.NEON_AMBER)
-        self.screen.blit(title, title.get_rect(center=(cx, 100)))
+
+        intro_total = 1200  # ms
+        cmd_full = f"cd /sector/0x{sector:02X}/"
+        if elapsed_ms < intro_total:
+            ratio = elapsed_ms / intro_total
+            chars = max(1, int(len(cmd_full) * min(1.0, ratio * 1.3)))
+            cmd = cmd_full[:chars]
+            # Descent: slide title from above into final position over the
+            # first 60% of the intro.
+            descent = max(0.0, 1.0 - min(1.0, ratio / 0.6))
+            title_y = int(100 - descent * 60)
+        else:
+            cmd = cmd_full
+            title_y = 100
+
+        # Header — typewriter command + caret.
+        caret = "_" if (elapsed_ms // 250) % 2 == 0 else " "
+        title = self.font_title.render(cmd + caret, True, theme.NEON_AMBER)
+        self.screen.blit(title, title.get_rect(center=(cx, title_y)))
+
+        sub_title = self.font_small.render(
+            f"-- stack trace -- 0x{sector:02X}", True, theme.TEXT_DIM
+        )
+        self.screen.blit(sub_title, sub_title.get_rect(center=(cx, title_y + 36)))
+
+        # Lines fade in once the typewriter is done.
+        line_alpha = 0
+        if elapsed_ms >= intro_total * 0.5:
+            line_alpha = min(255, int(((elapsed_ms - intro_total * 0.5) / 600) * 255))
 
         y = WINDOW_HEIGHT // 2 - len(lines) * 18
         for speaker, body in lines:
@@ -1645,6 +2128,8 @@ class UIManager:
             }.get(speaker, theme.TEXT_PRIMARY)
             speaker_surf = self.font_body.render(speaker, True, speaker_color)
             body_surf = self.font_body.render(body, True, theme.TEXT_PRIMARY)
+            speaker_surf.set_alpha(line_alpha)
+            body_surf.set_alpha(line_alpha)
             total_w = speaker_surf.get_width() + 12 + body_surf.get_width()
             x0 = cx - total_w // 2
             self.screen.blit(speaker_surf, (x0, y))
@@ -1652,7 +2137,7 @@ class UIManager:
             y += 32
 
         hint = self.font_small.render(
-            "[ENTER] continue",
+            "[ENTER] continue   [SPACE] skip",
             True,
             theme.TEXT_DIM,
         )
@@ -1746,7 +2231,7 @@ class UIManager:
                     )
 
         hint = self.font_small.render(
-            "[↑/↓] navigate    [esc] back",
+            glyphs.sanitize(self.font_small, "[↑/↓] navigate    [esc] back"),
             True,
             theme.TEXT_DIM,
         )
@@ -1879,40 +2364,179 @@ class UIManager:
         message: str | None,
         free: bool,
     ) -> None:
+        """Phase 12.10 — CRT shop terminal redesign.
+
+        ASCII storefront banner, three shelves grouped by ``kind``, bit-style
+        price tags, hover-lift on the focused card, inline ``explain()`` panel,
+        and an NPC portrait in the top-left corner.
+        """
         from kernelquest.ui.i18n import t
 
         self.clear()
         cx = WINDOW_WIDTH // 2
-        title = self.font_title.render(t("vendor.title"), True, theme.NEON_CYAN)
-        self.screen.blit(title, title.get_rect(center=(cx, 70)))
 
-        bits_label = t("vendor.bits", bits=bits) + (f"   [{t('vendor.free')}]" if free else "")
-        bits_surf = self.font_body.render(bits_label, True, theme.NEON_GREEN)
-        self.screen.blit(bits_surf, bits_surf.get_rect(center=(cx, 110)))
+        # --- ASCII storefront banner ---------------------------------------
+        banner_top = "+" + "-" * 56 + "+"
+        banner_mid = "|   /var/run/vendor :: " + t("vendor.title").upper() + "   |"
+        banner_mid = banner_mid.ljust(57) + "|"
+        banner = (banner_top, banner_mid, banner_top)
+        for i, line in enumerate(banner):
+            surf = self.font_body.render(line, True, theme.NEON_AMBER)
+            self.screen.blit(surf, surf.get_rect(center=(cx, 60 + i * 22)))
 
-        x = cx - 360
-        y = 160
+        # --- NPC portrait (top-left) ---------------------------------------
+        portrait = pygame.Rect(40, 40, 96, 96)
+        pygame.draw.rect(self.screen, theme.NEON_CYAN, portrait, 1)
+        # Stylised face: visor + grin + halo.
+        pygame.draw.rect(self.screen, theme.NEON_CYAN, portrait.inflate(-32, -52), 0)
+        pygame.draw.line(
+            self.screen,
+            theme.NEON_AMBER,
+            (portrait.x + 16, portrait.y + 70),
+            (portrait.x + 80, portrait.y + 70),
+            2,
+        )
+        npc_label = self.font_small.render(t("vendor.npc"), True, theme.TEXT_DIM)
+        self.screen.blit(npc_label, (portrait.x, portrait.bottom + 4))
+
+        # --- Bits readout ---------------------------------------------------
+        bits_label = f"$ echo $BITS\n  {bits}b" + (f"   [{t('vendor.free')}]" if free else "")
+        for i, line in enumerate(bits_label.splitlines()):
+            surf = self.font_small.render(line, True, theme.NEON_GREEN)
+            self.screen.blit(surf, surf.get_rect(topright=(WINDOW_WIDTH - 40, 50 + i * 18)))
+
+        # --- Group stock by kind -------------------------------------------
+        shelves: dict[str, list[tuple[int, dict[str, object]]]] = {}
         for i, item in enumerate(stock):
-            is_sel = i == selected
-            color = theme.NEON_CYAN if is_sel else theme.TEXT_PRIMARY
-            prefix = "▶ " if is_sel else "  "
-            cost = 0 if free else cast(int, item.get("cost", 0))
-            label = str(item.get("label", "?"))
             kind = str(item.get("kind", ""))
-            cost_text = f"{cost}b" if cost > 0 else t("vendor.free_cost")
-            line = f"{prefix}{label:<22} [{kind:<8}]   {cost_text}"
-            self._blit_text(line, (x, y), color, self.font_body)
-            desc = str(item.get("description", ""))
-            if desc:
-                self._blit_text(desc, (x + 24, y + 22), theme.TEXT_DIM, self.font_small)
-            y += 50
+            shelves.setdefault(kind, []).append((i, item))
 
+        # Display order — three shelves above, controls shelf below.
+        shelf_order = ("program", "daemon", "patch")
+        shelf_y = 170
+        shelf_gap_y = 150
+        for s_idx, kind in enumerate(shelf_order):
+            row = shelves.get(kind, [])
+            if not row:
+                continue
+            label = self.font_small.render(
+                f"[shelf] {t(f'vendor.shelf.{kind}')}",
+                True,
+                theme.TEXT_DIM,
+            )
+            self.screen.blit(label, (60, shelf_y + s_idx * shelf_gap_y - 22))
+            self._render_vendor_shelf(row, selected, shelf_y + s_idx * shelf_gap_y, free)
+
+        # Controls shelf (reroll + leave) at bottom of grid area.
+        controls = [
+            *shelves.get("reroll", []),
+            *shelves.get("leave", []),
+        ]
+        if controls:
+            self._render_vendor_shelf(
+                controls,
+                selected,
+                shelf_y + len(shelf_order) * shelf_gap_y,
+                free,
+                small=True,
+            )
+
+        # --- Inline explain() panel for the selected card ------------------
+        if 0 <= selected < len(stock):
+            chosen = stock[selected]
+            self._render_vendor_explain(chosen)
+
+        # --- Message + footer hint -----------------------------------------
         if message is not None:
             msg = self.font_body.render(message, True, theme.NEON_AMBER)
-            self.screen.blit(msg, msg.get_rect(center=(cx, WINDOW_HEIGHT - 90)))
+            self.screen.blit(msg, msg.get_rect(center=(cx, WINDOW_HEIGHT - 80)))
 
         hint = self.font_small.render(t("vendor.hint"), True, theme.TEXT_DIM)
         self.screen.blit(hint, hint.get_rect(center=(cx, WINDOW_HEIGHT - 40)))
+
+    _RARITY_GLOW: dict[str, tuple[int, int, int]] = {
+        "program": theme.NEON_CYAN,
+        "daemon": theme.NEON_GREEN,
+        "patch": theme.NEON_AMBER,
+        "reroll": theme.NEON_MAGENTA,
+        "leave": theme.TEXT_DIM,
+    }
+
+    def _render_vendor_shelf(
+        self,
+        row: list[tuple[int, dict[str, object]]],
+        selected: int,
+        y: int,
+        free: bool,
+        *,
+        small: bool = False,
+    ) -> None:
+        card_w = 220 if not small else 200
+        card_h = 110 if not small else 64
+        gap = 24
+        total_w = len(row) * card_w + (len(row) - 1) * gap
+        x = (WINDOW_WIDTH - total_w) // 2
+        for stock_idx, item in row:
+            is_sel = stock_idx == selected
+            kind = str(item.get("kind", ""))
+            glow = self._RARITY_GLOW.get(kind, theme.NEON_CYAN)
+            lift = -8 if is_sel else 0
+            rect = pygame.Rect(x, y + lift, card_w, card_h)
+            # Glass fill.
+            fill = pygame.Surface(rect.size, pygame.SRCALPHA)
+            fill.fill((*theme.PANEL_BG, 220 if is_sel else 180))
+            self.screen.blit(fill, rect.topleft)
+            pygame.draw.rect(self.screen, glow, rect, width=2 if is_sel else 1, border_radius=4)
+            # Label.
+            label = str(item.get("label", "?"))
+            text_color = theme.NEON_CYAN if is_sel else theme.TEXT_PRIMARY
+            label_surf = self.font_body.render(label, True, text_color)
+            self.screen.blit(label_surf, (rect.x + 12, rect.y + 10))
+            # Kind tag.
+            kind_surf = self.font_small.render(f"[{kind}]", True, glow)
+            self.screen.blit(kind_surf, (rect.x + 12, rect.y + 36))
+            # Price tag (bit-style).
+            cost = 0 if free else cast(int, item.get("cost", 0))
+            cost_text = "FREE" if cost == 0 else f"{cost}b"
+            cost_surf = self.font_small.render(cost_text, True, theme.NEON_AMBER)
+            self.screen.blit(cost_surf, cost_surf.get_rect(topright=(rect.right - 12, rect.y + 10)))
+            x += card_w + gap
+
+    def _render_vendor_explain(self, item: dict[str, object]) -> None:
+        """Inline description panel for the focused vendor card."""
+        kind = str(item.get("kind", ""))
+        label = str(item.get("label", "?"))
+        desc = str(item.get("description", ""))
+        if not desc:
+            return
+        panel_w = 360
+        panel_h = 140
+        x = WINDOW_WIDTH - panel_w - 40
+        y = WINDOW_HEIGHT - panel_h - 80
+        rect = pygame.Rect(x, y, panel_w, panel_h)
+        glass = pygame.Surface(rect.size, pygame.SRCALPHA)
+        glass.fill((*theme.PANEL_BG, 235))
+        self.screen.blit(glass, rect.topleft)
+        glow = self._RARITY_GLOW.get(kind, theme.NEON_CYAN)
+        pygame.draw.rect(self.screen, glow, rect, 1, border_radius=6)
+        title = self.font_body.render(label, True, glow)
+        self.screen.blit(title, (rect.x + 14, rect.y + 10))
+        # Wrap description.
+        words = desc.split()
+        line = ""
+        cy = rect.y + 44
+        for w in words:
+            trial = (line + " " + w).strip()
+            if self.font_small.size(trial)[0] > panel_w - 28:
+                surf = self.font_small.render(line, True, theme.TEXT_PRIMARY)
+                self.screen.blit(surf, (rect.x + 14, cy))
+                cy += 18
+                line = w
+            else:
+                line = trial
+        if line:
+            surf = self.font_small.render(line, True, theme.TEXT_PRIMARY)
+            self.screen.blit(surf, (rect.x + 14, cy))
 
     def render_run_summary(self, payload: dict[str, object]) -> None:
         from kernelquest.ui.i18n import t
@@ -1944,6 +2568,100 @@ class UIManager:
 
         hint = self.font_small.render(t("summary.hint"), True, theme.TEXT_DIM)
         self.screen.blit(hint, hint.get_rect(center=(cx, WINDOW_HEIGHT - 50)))
+
+    def render_dialogue(
+        self, scene: DialogueScene, line_index: int, *, elapsed_ms: int = 9999
+    ) -> None:
+        """Phase 12.11 — portrait + nameplate + typewriter dialogue box.
+
+        ``scene`` is a :class:`kernelquest.ui.dialogue.DialogueScene`.
+        ``line_index`` selects which of ``scene.lines`` to draw.
+        ``elapsed_ms`` controls the typewriter reveal (full reveal at >=1500 ms).
+        """
+        from kernelquest.ui.dialogue import DialogueScene
+
+        if not isinstance(scene, DialogueScene) or not scene.lines:
+            return
+        idx = max(0, min(line_index, len(scene.lines) - 1))
+        line = scene.lines[idx]
+
+        # Box.
+        box_w = WINDOW_WIDTH - 160
+        box_h = 180
+        box = pygame.Rect((WINDOW_WIDTH - box_w) // 2, WINDOW_HEIGHT - box_h - 60, box_w, box_h)
+        glass = pygame.Surface(box.size, pygame.SRCALPHA)
+        glass.fill((*theme.PANEL_BG, 235))
+        self.screen.blit(glass, box.topleft)
+        pygame.draw.rect(self.screen, theme.NEON_CYAN, box, 2, border_radius=8)
+
+        # Portrait (48x48) on the left of the box.
+        portrait_rect = pygame.Rect(box.x + 16, box.y + 16, 48, 48)
+        self._draw_dialogue_portrait(line.portrait, portrait_rect)
+
+        # Nameplate.
+        plate = self.font_small.render(line.speaker, True, theme.NEON_AMBER)
+        self.screen.blit(plate, (box.x + 76, box.y + 12))
+
+        # Title.
+        title = self.font_small.render(scene.title, True, theme.TEXT_DIM)
+        self.screen.blit(title, title.get_rect(topright=(box.right - 16, box.y + 12)))
+
+        # Typewriter reveal.
+        full = line.text
+        chars_per_ms = max(1, len(full)) / 1500
+        reveal = max(0, min(len(full), int(elapsed_ms * chars_per_ms)))
+        body_text = full[:reveal]
+
+        # Wrap.
+        wrap_x = box.x + 76
+        max_w = box.right - wrap_x - 16
+        words = body_text.split()
+        line_str = ""
+        cy = box.y + 44
+        for w in words:
+            trial = (line_str + " " + w).strip()
+            if self.font_body.size(trial)[0] > max_w:
+                surf = self.font_body.render(line_str, True, theme.TEXT_PRIMARY)
+                self.screen.blit(surf, (wrap_x, cy))
+                cy += 26
+                line_str = w
+            else:
+                line_str = trial
+        if line_str:
+            surf = self.font_body.render(line_str, True, theme.TEXT_PRIMARY)
+            self.screen.blit(surf, (wrap_x, cy))
+
+        # Footer prompt.
+        prompt = self.font_small.render(
+            f"[{idx + 1}/{len(scene.lines)}]   [SPACE] next   [ESC] skip",
+            True,
+            theme.TEXT_DIM,
+        )
+        self.screen.blit(prompt, prompt.get_rect(bottomright=(box.right - 16, box.bottom - 10)))
+
+    def _draw_dialogue_portrait(self, portrait_key: str, rect: pygame.Rect) -> None:
+        """Programmatic 48×48 portrait keyed by ``portrait_key``."""
+        # Frame.
+        pygame.draw.rect(self.screen, theme.NEON_CYAN, rect, 1)
+        if portrait_key == "kernel":
+            # Stylised "K" with an amber halo.
+            pygame.draw.rect(self.screen, (*theme.NEON_AMBER, 80), rect.inflate(-6, -6))
+            for i, line in enumerate(("KKK", "KK ", "K  ", "KK ", "KKK")):
+                surf = self.font_small.render(line, True, theme.NEON_AMBER)
+                self.screen.blit(surf, (rect.x + 8, rect.y + 4 + i * 8))
+        elif portrait_key == "init":
+            # Tiny avatar centred in the box.
+            cx, cy = rect.center
+            pygame.draw.circle(self.screen, theme.NEON_CYAN, (cx, cy - 8), 6, 1)
+            pygame.draw.rect(
+                self.screen,
+                theme.NEON_CYAN,
+                pygame.Rect(cx - 8, cy - 2, 16, 14),
+                1,
+            )
+        else:
+            # Fallback: gradient block.
+            pygame.draw.rect(self.screen, theme.TEXT_DIM, rect.inflate(-4, -4), 0)
 
     def render_post_run_summary(
         self,
@@ -1981,7 +2699,7 @@ class UIManager:
         color: tuple[int, int, int],
         font: pygame.font.Font,
     ) -> None:
-        surface = font.render(text, True, color)
+        surface = font.render(glyphs.sanitize(font, text), True, color)
         self.screen.blit(surface, pos)
 
     def _render_bar(
