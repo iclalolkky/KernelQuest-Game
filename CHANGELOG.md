@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [Unreleased] — Phase 12: Polish, Onboarding & UX
+
+> **The "Quality-of-Life and Showmanship" release.** Phase 12 layers presentation polish, onboarding parity, and a kiosk-style main menu over the 3.0 narrative core. 351 → 356 tests.
+
+### Added
+
+- **HUD redesign (12.4).** Compact top-bar HUD with explicit `DAMAGE` readout, enemy HP bars rendered above hostile sprites, AoE telegraph overlays for Sapper (3×3) and Caster (axis 1–4 tiles), and a permanent bottom hint bar for the current input state.
+- **Sector ladder (12.7).** New 8×3 ladder strip in the playing HUD shows release / milestone / boss columns with target scores; press `L` for the fullscreen ladder overlay.
+- **Inter-sector cinematic (12.8).** Typewriter `cd /sector/0xNN/` descent with intro fade-in over 1200 ms before each sector transition.
+- **Boss phase spectacle (12.9).** New `[KERNEL] !!! phase shift !!!` console banner, 0.45 s flash + letterbox + chroma tint via `render_phase_shift`, plus a 0.9 s glitch tail.
+- **Tutorial parity (12.1).** `lesson_examples()` and `_LESSON_EXAMPLES` ship richer per-lesson example panels (items, programs, daemons, patches) inside the Tutorial Range.
+- **Onboarding LORE (12.2).** Six new `man <topic>` codex entries (combat, cycles, RAM, cache, programs, daemons) gated by `onboarding_*` conditions.
+- **Self-quit reward (12.13).** Manual exits (`SIGINT`) now grant 25% of the would-be meta-bit reward and surface a `[init] graceful shutdown` console line; full crashes still forfeit bits.
+- **Boss dev menu (12.14).** Polygon overlay gains a dedicated **Boss** tab (`is_boss` species only). When `KQ_DEV=1` is set in the environment, a hidden **Boss Test Range** entry appears in the main menu.
+- **Synthesized menu music (12.15).** New 4-bar A-minor / 80 BPM chiptune loop with sub-bass + saw-pad + arp lead, wired to the menu and quit-confirm states.
+- **Tabbed menu hubs (12.6).** Top-level main menu collapses to **Launch / Manual / Records** plus Shop / Settings / Quit. Each hub is a tabbed sub-menu (`MANUAL_HUB`, `LAUNCH_HUB`, `RECORDS_HUB`) with TAB / 1..n / arrow navigation.
+- **Boot Map main menu (12.5).** `init(0)` now walks between labelled kiosks across the bottom of the menu screen. Toggleable in Settings → "Main Menu Layout" → `Boot Map` / `Classic`.
+- **Vendor reskin (12.10).** CRT-styled `/var/run/vendor` storefront with ASCII banner, three shelves grouped by kind, hover-lift cards, bit-style price tags, rarity glow, inline `explain()` panel, NPC portrait. Reroll renamed to `kill -HUP vendor`; leave renamed to `exit /var/run/vendor`.
+- **Dialogue scenes (12.11).** New `ui/dialogue.py` module with five canonical scenes (`intro`, `first_kill`, `first_boss`, `first_distro_success`, `ending`) and a `UIManager.render_dialogue` helper that draws portrait + nameplate + typewriter body.
+- **Arrow-key glyph fix (12.12).** All on-screen hints now use the `←/→/↑/↓` arrow glyphs instead of ASCII `UP/DN/LEFT/RIGHT`.
+- **English-only OS terms (12.3).** i18n glossary guard ensures `RAM`, `CPU`, `cache`, `kernel`, `daemon`, `process`, `init(0)`, `sector` stay English in every locale.
+
+### Changed
+
+- Boot music switches from `safe` to the new `menu` loop on startup.
+- Settings exposes a new `menu_layout` field (`map` / `classic`); persisted via `MetaRepository`.
+- Top-level menu options are now resolved at runtime via `_menu_options()` so the dev `boss_test` entry can be inserted without touching call sites.
+
+---
+
 ## [3.0.0] — 2026-05-05
 
 > **The "Narrative + Distros + Bilingual" release.** Phases 7 through 11 land together: a full story arc with cinematic intro/ending, a 12-strong enemy roster with affixes and damage types, six bosses with scripted phases, an adaptive multi-stem music engine, an interactive tutorial range, six distros with structured Release → Milestone → Sector runs, a between-milestone vendor with skip-tag drops, English/Turkish localisation, and a top-to-bottom UI rework anchored by an animated character-driven main menu. Internally the engine has been refactored to the **State Pattern** (242 → 297 tests).
