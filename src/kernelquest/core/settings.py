@@ -34,6 +34,8 @@ _KEY_INTRO_SEEN = "meta.intro_seen"
 _KEY_AUTO_SKIP_INTRO = "settings.auto_skip_intro"
 _KEY_PLAYER_PALETTE = "settings.player_palette"
 _KEY_LANGUAGE = "settings.language"
+# Phase 12.5 — "map" (Boot Map kiosk scene) or "classic" (textual menu).
+_KEY_MENU_LAYOUT = "settings.menu_layout"
 
 _DIFFICULTY_ORDER: tuple[Difficulty, ...] = (Difficulty.EASY, Difficulty.NORMAL, Difficulty.HARD)
 
@@ -58,6 +60,9 @@ class Settings:
     player_palette: str = "kernel"
     # Phase 11 — localization.
     language: str = "en"
+    # Phase 12.5 — main-menu presentation: ``map`` shows the Boot Map
+    # kiosk scene; ``classic`` falls back to the original list menu.
+    menu_layout: str = "map"
 
     # ----- difficulty modifiers -----
 
@@ -112,6 +117,9 @@ class Settings:
 
     def toggle_auto_skip_intro(self) -> None:
         self.auto_skip_intro = not self.auto_skip_intro
+
+    def toggle_menu_layout(self) -> None:
+        self.menu_layout = "classic" if self.menu_layout == "map" else "map"
 
     def cycle_palette(self, direction: int = 1) -> None:
         # Imported lazily to avoid pulling pygame into headless callers.
@@ -168,6 +176,7 @@ def load(meta: MetaRepository) -> Settings:
         auto_skip_intro=_bool(meta.get(_KEY_AUTO_SKIP_INTRO), False),
         player_palette=meta.get(_KEY_PLAYER_PALETTE) or "kernel",
         language=(meta.get(_KEY_LANGUAGE) or "en"),
+        menu_layout=(meta.get(_KEY_MENU_LAYOUT) or "map"),
     )
 
 
@@ -186,6 +195,7 @@ def save(meta: MetaRepository, settings: Settings) -> None:
     meta.set(_KEY_AUTO_SKIP_INTRO, "1" if settings.auto_skip_intro else "0")
     meta.set(_KEY_PLAYER_PALETTE, settings.player_palette)
     meta.set(_KEY_LANGUAGE, settings.language)
+    meta.set(_KEY_MENU_LAYOUT, settings.menu_layout)
 
 
 def is_tutorial_done(meta: MetaRepository) -> bool:
