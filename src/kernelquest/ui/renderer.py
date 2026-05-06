@@ -52,7 +52,7 @@ _CONSOLE_HEIGHT = 120
 # ---- Tutorial (Türkçe, görsel destekli) ---------------------------------------
 
 _TUTORIAL_PAGE_TITLES: tuple[str, ...] = (
-    "1. GENEL BAKIŞ - HUD",
+    "1. GENEL BAKIŞ - HUD PANELİ",
     "2. KARAKTER (PROCESS)",
     "3. DÜŞMANLAR (Malware)",
     "4. HARİTA & İLERLEME",
@@ -456,7 +456,7 @@ class UIManager:
     ) -> None:
         self.clear()
         cx = WINDOW_WIDTH // 2
-        title = self.font_title.render("YÜKSELTME MAĞAZASI", True, theme.NEON_CYAN)
+        title = self.font_title.render("ÖZELLİK YÜKSELTME", True, theme.NEON_CYAN)
         self.screen.blit(title, title.get_rect(center=(cx, 60)))
 
         bits_text = self.font_body.render(f"Mevcut bits: {bits}", True, theme.NEON_GREEN)
@@ -559,10 +559,10 @@ class UIManager:
     def _tutorial_overview(self, top: int) -> None:
         """Mock HUD with callouts: RAM, CYCLES, HASAR, SCORE, CACHE, MINIMAP."""
         cx = WINDOW_WIDTH // 2
-        intro = "RUN sırasında ekranın sağında her zaman görünen HUD paneli budur."
+        intro = "RUN sırasında ekranın sağında HUD paneli bulunur."
         self._blit_text(intro, (cx - 460, top), theme.TEXT_PRIMARY, self.font_body)
         self._blit_text(
-            "Aşağıdaki örnekte hangi alan ne işe yarıyor görebilirsin:",
+            "Hangi alan ne işe yarıyor?",
             (cx - 460, top + 24),
             theme.TEXT_DIM,
             self.font_body,
@@ -636,11 +636,11 @@ class UIManager:
 
         # Callouts pointing from the panel to descriptions on the right.
         callouts = [
-            (ram_y + 10, "RAM = canın. 0 olursa SYSTEM CRASH.", theme.NEON_GREEN),
+            (ram_y + 10, "RAM = canın. 0 olursa SYSTEM CRASH olur.", theme.NEON_GREEN),
             (cycles_y + 10, "CYCLES = bu turda harcayabileceğin enerji.", theme.NEON_AMBER),
             (damage_y + 10, "HASAR = bir vuruşta verdiğin temel hasar.", theme.NEON_MAGENTA),
-            (score_y + 10, "SKOR = RUN boyunca biriken puan.", theme.TEXT_PRIMARY),
-            (cache_y + 26, "CACHE = envanter; [1..9] ile yuva kullanılır.", theme.NEON_CYAN),
+            (score_y + 10, "SKOR = RUN boyunca biriken toplam puan.", theme.TEXT_PRIMARY),
+            (cache_y + 26, "CACHE = envanter; [1..9] ile kullanılır.", theme.NEON_CYAN),
         ]
         text_x = panel_x + panel_w + 40
         line_start_x = panel_x + panel_w + 4
@@ -677,26 +677,20 @@ class UIManager:
         radius = cell // 2 - 6
         pygame.draw.circle(self.screen, theme.PLAYER_COLOR, center, radius)
         pygame.draw.circle(self.screen, theme.NEON_CYAN, center, radius, 2)
-        self._blit_text("Sen (Process)", (ox, oy + cell + 8), theme.NEON_GREEN, self.font_body)
-        self._blit_text(
-            "Yeşil daire = oyuncu",
-            (ox, oy + cell + 32),
-            theme.TEXT_DIM,
-            self.font_small,
-        )
+        self._blit_text("Process (Oyuncu)", (ox, oy + cell + 8), theme.NEON_GREEN, self.font_body)
 
         text_x = ox + 200
         ty = oy
         line_h = self.font_body.get_height() + 6
         rows: tuple[tuple[tuple[int, int, int], str], ...] = (
-            (theme.NEON_GREEN, "RAM    = canın. Düşman, Bad Sector ve LogicBomb azaltır."),
-            (theme.TEXT_PRIMARY, "         0'a inerse SYSTEM CRASH (RUN biter)."),
-            (theme.NEON_AMBER, "CYCLES = her tur kullanılan enerji havuzu."),
+            (theme.NEON_GREEN, "RAM    = Canın. Düşman, Bad Sector ve LogicBomb kullanarak azaltır."),
+            (theme.TEXT_PRIMARY, "         0'a inerse SYSTEM CRASH olur."),
+            (theme.NEON_AMBER, "CYCLES = Her tur kullanılan enerji."),
             (theme.TEXT_PRIMARY, "         Hareket = 1 cycle, saldırı = 1 cycle."),
             (theme.TEXT_PRIMARY, "         Tur sonunda otomatik dolar; biriktirilemez."),
-            (theme.NEON_CYAN, "CACHE  = topladığın paketlerin envanteri."),
+            (theme.NEON_CYAN, "CACHE  = Topladığın paketlerin envanteri."),
             (theme.TEXT_PRIMARY, "         Doluyken yeni item alamazsın."),
-            (theme.NEON_MAGENTA, "HASAR  = saldırıda verilen temel hasar (HUD'da yazar)."),
+            (theme.NEON_MAGENTA, "HASAR  = Saldırıda verilen temel hasar."),
         )
         for color, text in rows:
             self._blit_text(text, (text_x, ty), color, self.font_body)
@@ -716,7 +710,7 @@ class UIManager:
             demo_y += 22
 
         self._blit_text(
-            "Renk kritiğe döndüğünde GarbageCollector kullanmayı düşün.",
+            "Renk kritiğe döndüğünde GarbageCollector kullanabilirsin.",
             (ox, demo_y + 8),
             theme.NEON_AMBER,
             self.font_body,
@@ -733,11 +727,11 @@ class UIManager:
                 8,
                 8,
                 "SyntaxError",
-                "Sarı, zayıf ama kalabalık. (8 RAM)",
+                "Sarı, zayıf ama fazla. (8 RAM)",
                 [
-                    "- Yakına gelir, bitişikteyken seni ısırır (-4 RAM).",
-                    "- %25 ihtimalle rasgele bir yöne kayar.",
-                    "- Tek vuruşta ölmesi kolaydır.",
+                    "- Yakına gelir, bitişiğindeyken seni ısırır (-4 RAM).",
+                    "- %25 ihtimalle rastgele bir yöne kayar.",
+                    "- Tek vuruşta ölür.",
                 ],
             ),
             (
@@ -748,8 +742,8 @@ class UIManager:
                 "Kırmızı, yavaş ama tehlikeli. (12 RAM)",
                 [
                     "- 1 kare yakınına girersen kendini patlatır.",
-                    "- AoE patlama -18 RAM (her yöne).",
-                    "- Mesafeden öldürmek genelde daha güvenlidir.",
+                    "- AoE patlama -18 RAM.",
+                    "- Uzak mesafeden öldürmek daha güvenlidir.",
                 ],
             ),
             (
@@ -759,9 +753,9 @@ class UIManager:
                 "KernelPanic",
                 "Mor, BOSS. Sektör 5+'da çıkar. (60 RAM)",
                 [
-                    "- Bitişikteyken ezer (-12 RAM).",
+                    "- Bitişiğindeyken ezer (-12 RAM).",
                     "- Canı yarıya inince 'enraged' olur:",
-                    "  doğru çizgide kernel-tuzağı atar.",
+                    "- Doğru istikamette kernel-tuzağı atar.",
                 ],
             ),
         )
@@ -832,25 +826,25 @@ class UIManager:
             (
                 TileType.SYSTEM_DATA,
                 "System Data",
-                "YÜRÜNEBİLİR koridor. RUN'un büyük kısmını burada geçirirsin.",
+                "Yürünebilir koridor. Düşmanlar ve itemler bu karede görünür.",
                 theme.NEON_GREEN,
             ),
             (
                 TileType.EMPTY,
                 "Boşluk / Duvar",
-                "Yürünemez. Hareket bu kareye gitmeye çalışırsa engellenir.",
+                "Yürünemez. Bu kareye gitmeye çalışırsan engellenirsin.",
                 theme.TEXT_DIM,
             ),
             (
                 TileType.BAD_SECTOR,
                 "Bad Sector",
-                "YÜRÜNEBİLİR ama her basışta -5 RAM yakar. Mecbur kalmadıkça basma.",
+                "Yürünebilir ama her geçişinde -5 RAM yakar.",
                 (255, 110, 110),
             ),
             (
                 TileType.EXIT,
                 "EXIT (pembe)",
-                "YÜRÜNEBİLİR. Üstüne basar basmaz bir alt sektöre geçersin (+100 skor).",
+                "Yürünebilir. Üstüne bastığın zaman bir alt sektöre geçersin (+100 skor).",
                 theme.NEON_MAGENTA,
             ),
         )
@@ -864,19 +858,11 @@ class UIManager:
             self._blit_text(desc, (tx, y + 28), theme.TEXT_PRIMARY, self.font_body)
             y += cell + 16
 
-        # "Player on EXIT" demo.
-        demo_x = ox
-        demo_y = y + 10
-        self._blit_text(
-            "Örnek: oyuncu EXIT (pembe) karesine basıyor -> sonraki sektör.",
-            (demo_x, demo_y),
-            theme.NEON_AMBER,
-            self.font_body,
-        )
-        demo_y += 28
         for i, tile in enumerate(
             (TileType.SYSTEM_DATA, TileType.SYSTEM_DATA, TileType.EXIT, TileType.SYSTEM_DATA)
         ):
+            demo_x = ox
+            demo_y = y + 10
             r = pygame.Rect(demo_x + i * (cell + 4), demo_y, cell, cell)
             pygame.draw.rect(self.screen, _TILE_COLORS[tile], r)
             pygame.draw.rect(self.screen, theme.GRID_LINE, r, 1)
@@ -898,13 +884,13 @@ class UIManager:
         # Fog-of-war note.
         note_y = demo_y + cell + 16
         self._blit_text(
-            "Görüş yarıçapın sınırlıdır (Fog of War). Karanlık kareler kararır.",
+            "Görüş açın sınırlıdır. Kareler kararır.",
             (ox, note_y),
             theme.TEXT_DIM,
             self.font_body,
         )
         self._blit_text(
-            "ScanBoost (item) veya +Scan (mağaza) görüş yarıçapını büyütür.",
+            "ScanBoost (item) veya +Scan (mağaza) görüş açını büyütür.",
             (ox, note_y + 22),
             theme.TEXT_DIM,
             self.font_body,
@@ -921,7 +907,7 @@ class UIManager:
                 "gc",
                 "G",
                 "GarbageCollector",
-                "Anında +25 RAM geri yükler. RAM kritikken kullan.",
+                "Anında +25 RAM geri yükler. RAM kritiğe düştüğünde kullanmak için ideal.",
                 theme.ITEM_GC,
             ),
             (
@@ -935,7 +921,7 @@ class UIManager:
                 "scan",
                 "S",
                 "ScanBoost",
-                "5 tur boyunca tarama yarıçapını büyütür. Keşif için ideal.",
+                "5 tur boyunca tarama çapını büyütür. Keşif için ideal.",
                 theme.ITEM_SCAN_BOOST,
             ),
         )
@@ -956,7 +942,7 @@ class UIManager:
         # Cache strip visualization.
         strip_y = y + 16
         self._blit_text(
-            "CACHE: HUD'da 8 yuvalı şerit. [1..9] tuşlarıyla yuvayı kullanırsın.",
+            "CACHE: HUD'da ki envanterin. [1..9] tuşlarıyla istediğini kullanabilirsin.",
             (ox, strip_y),
             theme.NEON_CYAN,
             self.font_body,
@@ -991,13 +977,13 @@ class UIManager:
             self.font_body,
         )
         self._blit_text(
-            "Cache doluysa item yerde kalır - önce bir yuvayı boşalt.",
+            "Cache doluysa item yerde kalır. Almak için birini kullan.",
             (ox, notes_y + 22),
             theme.TEXT_PRIMARY,
             self.font_body,
         )
         self._blit_text(
-            "Düşman öldürünce %35 ihtimalle item düşürür.",
+            "Düşman öldürünce %35 ihtimalle bir item düşürür.",
             (ox, notes_y + 44),
             theme.TEXT_DIM,
             self.font_body,
@@ -1023,7 +1009,7 @@ class UIManager:
             y += line_h
         y += 8
         self._blit_text(
-            "RUN bitince skor + derinlik + çökme nedeni veritabanına kaydedilir.",
+            "RUN bitince 'skor + derinlik + çökme nedeni' veritabanına kaydedilir.",
             (ox, y),
             theme.NEON_CYAN,
             self.font_body,
@@ -1031,7 +1017,7 @@ class UIManager:
 
         meta_y = y + line_h * 2
         self._blit_text(
-            "META PROGRESS (RUN'lar arası kalıcı):", (ox, meta_y), theme.NEON_GREEN, self.font_body
+            "META PROGRESS:", (ox, meta_y), theme.NEON_GREEN, self.font_body
         )
         meta_y += 28
         self._blit_text(
@@ -1077,8 +1063,8 @@ class UIManager:
 
         self._blit_text("KONTROLLER", (ox, top), theme.NEON_AMBER, self.font_body)
         rows = (
-            ("[OK Tuşları] / [W A S D]", "hareket / bitişik düşmana saldırı"),
-            ("[SPACE]", "bekle (1 tur, düşmanlar oynar)"),
+            ("[OK Tuşları] / [W A S D]", "hareket / bitişiğindeki düşmana saldırı"),
+            ("[SPACE]", "bekle (1 tur, düşmanlar oynar sen durursun)"),
             ("[1] .. [9]", "cache yuvasındaki itemi kullan"),
             ("[ESC]", "RUN'u sonlandır / menüye dön"),
         )
@@ -1088,13 +1074,13 @@ class UIManager:
             y += line_h
 
         y += 8
-        self._blit_text("OYUN MANTALITESI", (ox, y), theme.NEON_CYAN, self.font_body)
+        self._blit_text("OYUN TAKTİKLERİ", (ox, y), theme.NEON_CYAN, self.font_body)
         y += 28
         tactics = (
-            "1. Cycle ekonomisini yönet: gereksiz hareket etme.",
-            "2. RAM'i koru: Bad Sector'lere basma, LogicBomb yarıçapına girme.",
-            "3. Cache'ini stratejik boşalt: GC kritikte, Optimization kalabalıkta.",
-            "4. Bilmediğin koridora dalmadan tarama yarıçapını kullan.",
+            "1. Cycle'ı iyi yönet: gereksiz hareket etme.",
+            "2. RAM'i koru: Bad Sector'lere basma, LogicBomb açısına girme.",
+            "3. Cache'ini stratejik kullan: GC kritikte, Optimization kalabalıkta.",
+            "4. Bilmediğin koridora dalmadan tarama yap.",
             "5. KernelPanic ile karşılaştığında doğru çizgide kalma (kernel-tuzağı).",
             "6. RUN bitse de bits biriktirir, bir sonraki sefer daha güçlü başlarsın.",
         )
@@ -1103,7 +1089,7 @@ class UIManager:
             y += line_h
 
         self._blit_text(
-            "Hazır mısın? Ana menüden 'Yeni RUN' ile başlayabilirsin.",
+            "Hazırsan ana menüden 'Yeni RUN' ile oynamaya başlayabilirsin.",
             (ox, y + 8),
             theme.NEON_GREEN,
             self.font_body,
