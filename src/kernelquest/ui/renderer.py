@@ -379,13 +379,13 @@ class UIManager:
             empty = self.font_body.render("Henüz kayıtlı RUN yok.", True, theme.TEXT_DIM)
             self.screen.blit(empty, empty.get_rect(center=(cx, WINDOW_HEIGHT // 2)))
         else:
-            header = "{:<4}{:<18}{:>8}{:>8}  {:<14}{}".format(
+            header = "{:<4} {:<18} {:>10}    {:>10}    {:<14} {}".format(
                 "#", "PROCESS", "SKOR", "DERINLIK", "ÇÖKME", "ZAMAN"
             )
             self._blit_text(header, (cx - 360, 120), theme.NEON_AMBER, self.font_body)
             for i, row in enumerate(rows):
                 name, score, depth, cause, when = row
-                line = "{:<4}{:<18}{:>8}{:>8}  {:<14}{}".format(
+                line = "{:<4} {:<18} {:>10}    {:>10}    {:<14} {}".format(
                     f"{i + 1}.", name[:16], score, depth, cause[:12], when[:16]
                 )
                 self._blit_text(line, (cx - 360, 152 + i * 24), theme.TEXT_PRIMARY, self.font_body)
