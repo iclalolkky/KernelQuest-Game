@@ -55,6 +55,13 @@ class Player(Entity):
     daemons: list[Daemon] = field(default_factory=list)
     enemies_skip_turns: int = 0  # `nice` / `niced` etc.
 
+    # Phase 12.4 — transient HUD readouts.
+    damage_dealt_this_turn: int = 0
+    """Aggregate damage the player has dealt during the current turn.
+
+    Reset to zero in :meth:`end_turn`. Read-only for renderers.
+    """
+
     # ----- state queries -----
 
     @property
@@ -131,6 +138,9 @@ class Player(Entity):
     def end_turn(self) -> None:
         """Refill CPU cycles for the next turn."""
         self.cpu_cycles = self.max_cpu_cycles
+        # Phase 12.4 — the per-turn damage counter is a HUD readout, not
+        # persistent state; it always resets at turn end.
+        self.damage_dealt_this_turn = 0
 
     def spend_cycle(self) -> bool:
         """Consume a single CPU cycle. Returns ``False`` if none available."""
