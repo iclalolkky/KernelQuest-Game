@@ -34,6 +34,12 @@ class GameState(Enum):
     VENDOR = auto()
     MILESTONE_RESULT = auto()
     RUN_SUMMARY = auto()
+    # Phase 12.6 — tab-grouped main menu hubs.
+    MANUAL_HUB = auto()
+    LAUNCH_HUB = auto()
+    RECORDS_HUB = auto()
+    # Phase 12.5 — interactive Boot Map main menu (kiosk walking scene).
+    MENU_MAP = auto()
     # Quit confirmation modal.
     QUIT_CONFIRM = auto()
     QUIT = auto()
