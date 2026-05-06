@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import random
 import time
 from dataclasses import dataclass, field
@@ -139,21 +140,29 @@ log = logging.getLogger(__name__)
 
 _KEY_BITS = "meta.bits"
 
-_POLYGON_KINDS: tuple[str, ...] = ("enemy", "item", "program", "daemon", "patch")
+_POLYGON_KINDS: tuple[str, ...] = ("enemy", "item", "program", "daemon", "patch", "boss")
 
 _MENU_OPTIONS: tuple[str, ...] = (
-    "new_run",
-    "daily_run",
-    "training",
-    "howtoplay",
-    "codex",
-    "high_scores",
-    "daily_board",
-    "stats",
+    "launch",
+    "manual",
+    "records",
     "shop",
     "settings",
     "quit",
 )
+
+
+def _menu_options() -> tuple[str, ...]:
+    """Return the runtime-resolved menu list.
+
+    Phase 12.14 — when ``KQ_DEV=1`` is set in the environment we splice in a
+    hidden ``boss_test`` kiosk so designers can poke bosses without booting a
+    full run. The flag never persists to settings; it is purely a dev-time
+    switch.
+    """
+    if os.environ.get("KQ_DEV") == "1":
+        return tuple([*_MENU_OPTIONS[:-1], "boss_test", "quit"])
+    return _MENU_OPTIONS
 
 
 @dataclass
@@ -224,6 +233,20 @@ class GameEngine:
         self._boss_banner_ttl: float = 0.0
         self._glitch_intensity: float = 0.0
         self._show_help_overlay: bool = False
+        # Phase 12.7 — fullscreen RELEASE ladder overlay (toggled with [L]).
+        self._show_ladder_overlay: bool = False
+        # Phase 12.9 — boss "phase shift" cinematic burst.  Counts down
+        # from ~0.4s while the renderer paints a flash + letterbox overlay.
+        self._phase_shift_ttl: float = 0.0
+        # Phase 12.13 — set to True when the run ended via SIGINT (manual
+        # quit) so the persistence layer can grant a partial meta-bit reward
+        # without unlocking distros / true_ending lore.
+        self._was_aborted_run: bool = False
+        # Phase 12.6 — selected tab inside Manual / Launch / Records hubs.
+        self._hub_tab_index: int = 0
+        # Phase 12.5 — init(0) avatar position on the Boot Map.
+        self._menu_map_x: int = 320
+        self._menu_map_facing: int = 1
         self._howtoplay_lines: list[str] = []
         self._howtoplay_scroll: int = 0
         self._tutorial_step: int = 0
@@ -259,6 +282,9 @@ class GameEngine:
         self._cinematic_kind: str = ""  # "intro" | "ending"
         self._codex_index: int = 0
         self._stack_trace_lines: list[tuple[str, str]] = []
+        # Phase 12.8 — timestamp when the inter-sector cinematic started so
+        # the renderer can drive its descent + typewriter animation.
+        self._stack_trace_started_ms: int = 0
         self._first_kill_pending: bool = True
         self._first_pickup_pending: bool = True
         self._first_descent_pending: bool = True
@@ -340,7 +366,7 @@ class GameEngine:
             self._sfx.set_music_volume(self._settings.music_volume)
             self._sfx.set_sfx_volume(self._settings.sfx_volume)
             self._sfx.set_muted(self._settings.muted)
-            self._sfx.start_music("safe")
+            self._sfx.start_music("menu")
             clock = pygame.time.Clock()
 
             # Apply persisted player palette to the renderer.
@@ -379,6 +405,8 @@ class GameEngine:
         self._floats.step()
         if self._boss_banner_ttl > 0.0:
             self._boss_banner_ttl = max(0.0, self._boss_banner_ttl - dt)
+        if self._phase_shift_ttl > 0.0:
+            self._phase_shift_ttl = max(0.0, self._phase_shift_ttl - dt)
         if self._glitch_intensity > 0.0:
             self._glitch_intensity = max(0.0, self._glitch_intensity - dt * 0.4)
         if self._cinematic is not None and self._state in (GameState.INTRO, GameState.ENDING):
@@ -430,21 +458,41 @@ class GameEngine:
         if event.key == pygame.K_ESCAPE:
             self._state = GameState.QUIT_CONFIRM
             return
+        options = _menu_options()
         if event.key in (pygame.K_UP, pygame.K_w):
-            self._menu_index = (self._menu_index - 1) % len(_MENU_OPTIONS)
+            self._menu_index = (self._menu_index - 1) % len(options)
         elif event.key in (pygame.K_DOWN, pygame.K_s):
-            self._menu_index = (self._menu_index + 1) % len(_MENU_OPTIONS)
+            self._menu_index = (self._menu_index + 1) % len(options)
         elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
             self._activate_menu_option()
 
     def _activate_menu_option(self) -> None:
-        choice = _MENU_OPTIONS[self._menu_index]
-        if choice == "new_run":
+        options = _menu_options()
+        if self._menu_index >= len(options):
+            self._menu_index = 0
+        choice = options[self._menu_index]
+        if choice == "launch":
+            self._hub_tab_index = 0
+            self._state = GameState.LAUNCH_HUB
+        elif choice == "manual":
+            self._hub_tab_index = 0
+            self._state = GameState.MANUAL_HUB
+        elif choice == "records":
+            self._hub_tab_index = 0
+            self._state = GameState.RECORDS_HUB
+        elif choice == "new_run":
             self._open_distro_select(daily=False)
         elif choice == "daily_run":
             self._open_distro_select(daily=True)
         elif choice == "training":
             self._start_tutorial_range()
+        elif choice == "boss_test":
+            # Phase 12.14 — Boss Test Range: open the tutorial sandbox with the
+            # Polygon already toggled to the Boss tab. Never writes runs.
+            self._start_tutorial_range()
+            self._polygon_open = True
+            self._polygon_kind_index = _POLYGON_KINDS.index("boss")
+            self._polygon_item_index = 0
         elif choice == "howtoplay":
             self._start_tutorial()
         elif choice == "codex":
@@ -522,6 +570,7 @@ class GameEngine:
         "palette",
         "auto_skip_intro",
         "language",
+        "menu_layout",
     )
 
     def _adjust_setting(self, direction: int) -> None:
@@ -561,6 +610,8 @@ class GameEngine:
             self._settings.toggle_auto_skip_intro()
         elif key == "language":
             self._settings.cycle_language(direction)
+        elif key == "menu_layout":
+            self._settings.toggle_menu_layout()
 
     def _cycle_theme(self, direction: int) -> None:
         from kernelquest.ui import themes as themes_mod
@@ -585,6 +636,11 @@ class GameEngine:
 
         if event.key in (pygame.K_QUESTION, pygame.K_SLASH, pygame.K_F1):
             self._show_help_overlay = not self._show_help_overlay
+            return
+
+        if event.key == pygame.K_l:
+            # Phase 12.7 — toggle the fullscreen RELEASE ladder.
+            self._show_ladder_overlay = not self._show_ladder_overlay
             return
 
         if event.key == pygame.K_i:
@@ -1060,12 +1116,19 @@ class GameEngine:
     def _make_viewport(self, world: World) -> Viewport:
         """Phase 9 — fit the map within the play area without overlapping the
         right-side HUD column or the bottom console strip.
+
+        Phase 12.4 — also reserve space for the keybind bottom bar so the
+        play area never bleeds under HUD chrome.
         """
         hud_width = 280
         console_height = 120
+        bottom_bar_height = 28 + 12  # bar + margin between bar and console
         margin = 16
         avail_w = max(160, WINDOW_WIDTH - hud_width - margin * 2)
-        avail_h = max(160, WINDOW_HEIGHT - console_height - margin * 3)
+        avail_h = max(
+            160,
+            WINDOW_HEIGHT - console_height - bottom_bar_height - margin * 3,
+        )
         gw = max(1, world.grid.width)
         gh = max(1, world.grid.height)
         tile = max(8, min(avail_w // gw, avail_h // gh))
@@ -1239,9 +1302,13 @@ class GameEngine:
         if not isinstance(phase, BossPhase):  # pragma: no cover
             return
         self._console.crit(f"-- {enemy.crash_label}: PHASE = {phase.name} --")
+        # Phase 12.9 — hard, named beat in the console so the moment reads
+        # like an actual phase change rather than another stat tick.
+        self._console.kernel("!!! phase shift !!!", LogLevel.CRIT)
+        self._phase_shift_ttl = 0.45
         if phase.telegraph:
             self._console.warn(phase.telegraph)
-        self._glitch_intensity = max(self._glitch_intensity, 0.8)
+        self._glitch_intensity = max(self._glitch_intensity, 0.9)
         self._shake.punch(SCREEN_SHAKE_DAMAGE_INTENSITY)
         if self._sfx is not None and phase.music_overlay:
             # Re-trigger the boss track to "swap into" the overlay layer.
@@ -1280,14 +1347,23 @@ class GameEngine:
         if self._world.player.crash_cause is None:
             self._world.player.crash_cause = "Out of RAM"
         cause = self._world.player.crash_cause
-        self._console.crit(f"[init] core dumped — signal: {cause}")
+        # Phase 12.13 — distinguish a self-quit ("graceful shutdown") from
+        # a true crash so the player still gets *some* meta credit when they
+        # bail out instead of dying.
+        aborted = cause is not None and cause.startswith("SIGINT")
+        self._was_aborted_run = aborted
+        if aborted:
+            self._console.kernel("[init] graceful shutdown — partial bits awarded.")
+        else:
+            self._console.crit(f"[init] core dumped — signal: {cause}")
         self._play_sfx("crash")
-        # Phase 7 lore unlocks.
-        if self._first_crash_pending:
-            self._first_crash_pending = False
-            self._unlock_lore_for("first_crash")
-        # Crash-cause-specific lore (e.g. ``cause_Logic Bomb``).
-        self._unlock_lore_for(f"cause_{cause}")
+        # Phase 7 lore unlocks — only when the run actually crashed.
+        if not aborted:
+            if self._first_crash_pending:
+                self._first_crash_pending = False
+                self._unlock_lore_for("first_crash")
+            # Crash-cause-specific lore (e.g. ``cause_Logic Bomb``).
+            self._unlock_lore_for(f"cause_{cause}")
         # Phase 8 — compute post-run summary rows + persist combat log.
         self._post_run_summary = self._compose_run_summary()
         self._persist_combat_log()
@@ -1353,9 +1429,17 @@ class GameEngine:
             # Phase 11 — record milestone trail / skip tags even on failure.
             self._persist_phase11_artifacts(run_id)
         # Phase 11 — failed run forfeits all in-run bits earned this run.
+        # Phase 12.13 — a graceful abort instead grants up to 25% of the
+        # standard formula so the run still feels rewarded.
         if self._run_progress is not None:
             self._meta.set_int(_KEY_BITS, self._meta_bits_snapshot)
-            bits_earned = 0
+            if getattr(self, "_was_aborted_run", False):
+                full = player.score // 10 + player.depth_reached * 2
+                bits_earned = max(0, min(full // 4, full // 4))
+                if bits_earned > 0:
+                    self._meta.set_int(_KEY_BITS, self._meta_bits_snapshot + bits_earned)
+            else:
+                bits_earned = 0
         else:
             # Tutorial / legacy path keeps old reward formula.
             bits_earned = player.score // 10 + player.depth_reached * 2
@@ -1439,6 +1523,7 @@ class GameEngine:
             (t("settings.palette"), s.player_palette),
             (t("settings.auto_skip_intro"), on if s.auto_skip_intro else off),
             (t("settings.language"), s.language.upper()),
+            (t("settings.menu_layout"), t(f"settings.menu_layout.{s.menu_layout}")),
         ]
 
     def _fetch_high_scores(self) -> list[tuple[str, int, int, str, str]]:
@@ -1705,6 +1790,9 @@ class GameEngine:
         rows: list[tuple[str, str]] = []
         if kind == "enemy":
             rows = [(s.label, s.lore_blurb or s.archetype.value) for s in MC]
+        elif kind == "boss":
+            # Phase 12.14 — dedicated Boss tab (filtered to ``is_boss`` species).
+            rows = [(s.label, s.lore_blurb or s.archetype.value) for s in MC if s.is_boss]
         elif kind == "item":
             rows = [(get_item(k).label, _explain("item", k)) for k in AI]
         elif kind == "program":
@@ -1762,6 +1850,22 @@ class GameEngine:
                 return
             self._world.enemies.append(factory(spawn_pos))
             self._console.info(f"spawned {sp.label} at {spawn_pos}")
+        elif kind == "boss":
+            # Phase 12.14 — Boss tab spawns a fully scaled boss process.
+            bosses = [s for s in MC if s.is_boss]
+            if idx >= len(bosses):
+                return
+            sp = bosses[idx]
+            spawn_pos = self._polygon_spawn_position()
+            if spawn_pos is None:
+                self._console.warn("no free tile to spawn boss")
+                return
+            factory = factory_for(sp.key)
+            if factory is None:
+                self._console.warn(f"no factory for boss {sp.key}")
+                return
+            self._world.enemies.append(factory(spawn_pos))
+            self._console.crit(f"!! BOSS PROCESS LOADED: {sp.label} !!")
         elif kind == "item" and idx < len(AI):
             spawn_pos = self._polygon_spawn_position()
             if spawn_pos is None:
@@ -1865,6 +1969,17 @@ class GameEngine:
         self._cinematic.start()
         self._cinematic_kind = "intro"
         self._unlock_lore_for("first_boot")
+        # Phase 12.2 — Boot Briefing: surface the six onboarding codex pages
+        # the moment the player launches their first run.
+        for cond in (
+            "onboarding_combat",
+            "onboarding_cycles",
+            "onboarding_ram",
+            "onboarding_cache",
+            "onboarding_programs",
+            "onboarding_daemons",
+        ):
+            self._unlock_lore_for(cond)
         self._state = GameState.INTRO
 
     def _start_ending(self) -> None:
@@ -1931,6 +2046,9 @@ class GameEngine:
         primary = STACK_TRACE_LINES[idx]
         secondary = STACK_TRACE_LINES[(idx + 1) % len(STACK_TRACE_LINES)]
         self._stack_trace_lines = [primary, secondary]
+        self._stack_trace_started_ms = pygame.time.get_ticks()
+        if self._sfx is not None:
+            self._sfx.play("descend")
         self._state = GameState.STACK_TRACE
 
     def _handle_stack_trace_key(self, event: pygame.event.Event) -> None:
@@ -2252,8 +2370,8 @@ class GameEngine:
             {
                 "kind": "reroll",
                 "key": "reroll",
-                "label": "Reroll",
-                "description": "",
+                "label": "kill -HUP vendor",
+                "description": "Reseed the shelves with a fresh stock.",
                 "cost": 3,
             }
         )
@@ -2261,8 +2379,8 @@ class GameEngine:
             {
                 "kind": "leave",
                 "key": "leave",
-                "label": "Leave",
-                "description": "",
+                "label": "exit /var/run/vendor",
+                "description": "Step away from the vendor terminal.",
                 "cost": 0,
             }
         )
