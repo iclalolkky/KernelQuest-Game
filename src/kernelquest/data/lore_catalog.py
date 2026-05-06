@@ -189,6 +189,75 @@ CATALOG: Final[tuple[LoreEntry, ...]] = (
         ),
         unlock_condition="true_ending",
     ),
+    # ------------------------------------------------------------------
+    # Phase 12.2 — Boot Briefing onboarding entries (init(0) / [KERNEL])
+    # ------------------------------------------------------------------
+    LoreEntry(
+        key="onboarding_combat",
+        title="man combat — Bumping In",
+        body=(
+            "[KERNEL] You attack by walking *into* a hostile process.\n"
+            "[KERNEL] Each bump costs 1 cycle, deals KINETIC damage,\n"
+            "[KERNEL] then ends your turn. The world reacts after.\n"
+            "[init(0)] keep my back to a wall when i can. it costs nothing."
+        ),
+        unlock_condition="onboarding_combat",
+    ),
+    LoreEntry(
+        key="onboarding_cycles",
+        title="man cpu_cycles — The Currency",
+        body=(
+            "[KERNEL] cycles regenerate slowly while you stand still.\n"
+            "[KERNEL] every action — move, attack, fire program — spends one.\n"
+            "[KERNEL] zero cycles → you may still wait, but most programs lock.\n"
+            "[init(0)] sometimes the right move is to wait one tick."
+        ),
+        unlock_condition="onboarding_cycles",
+    ),
+    LoreEntry(
+        key="onboarding_ram",
+        title="man ram — Your Hit Points",
+        body=(
+            "[KERNEL] ram is your life budget. enemies subtract bytes.\n"
+            "[KERNEL] hitting zero is a 'core dump' — the run ends.\n"
+            "[KERNEL] gc items free RAM. patches may raise the cap.\n"
+            "[init(0)] i am not the heap. i am a process. i can die."
+        ),
+        unlock_condition="onboarding_ram",
+    ),
+    LoreEntry(
+        key="onboarding_cache",
+        title="man cache — Your Pockets",
+        body=(
+            "[KERNEL] picked-up items live in the cache, addressed 1..N.\n"
+            "[KERNEL] press the matching number key to consume one.\n"
+            "[KERNEL] cache is finite. pick what survives the next sector.\n"
+            "[init(0)] gc heals. opt buys cycles. scan extends my sight."
+        ),
+        unlock_condition="onboarding_cache",
+    ),
+    LoreEntry(
+        key="onboarding_programs",
+        title="man programs — Q / E / R",
+        body=(
+            "[KERNEL] three program slots are bound to Q, E, and R.\n"
+            "[KERNEL] each program has a cycle cost, charges, cooldown.\n"
+            "[KERNEL] programs do not break the turn — only the silence.\n"
+            "[init(0)] kill -9 is loud. fork() is louder. sudo is final."
+        ),
+        unlock_condition="onboarding_programs",
+    ),
+    LoreEntry(
+        key="onboarding_daemons",
+        title="man daemons — The Quiet Ones",
+        body=(
+            "[KERNEL] daemons run in the background. they do not need keys.\n"
+            "[KERNEL] their tags overlap with patches → that is a 'synergy'.\n"
+            "[KERNEL] equip two whose tags reinforce your build.\n"
+            "[init(0)] cron heals me on a clock. tcpdump telegraphs danger."
+        ),
+        unlock_condition="onboarding_daemons",
+    ),
 )
 
 
