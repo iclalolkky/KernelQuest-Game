@@ -522,6 +522,113 @@ Each lesson is a short scripted scene with goals that auto-complete when the pla
 
 ---
 
+## Phase 12 — Player Experience Polish: "uptime++" 🪄
+
+**Goal:** Tighten everything the player actually sees and hears so the game feels like a finished product, not a tech demo. Driven by playtest feedback (overlapping HUD, missing in-run guidance, flat boss fights, dry menus, untranslated control glyphs, ungenerous quit flow).
+
+> Convention: every checkbox is a single PR. Each PR keeps `python -m kernelquest.main` runnable and the `ruff/black/mypy/pytest` gate green.
+
+### 12.1 Tutorial parity with current branch
+- [ ] Audit `data/tutorial/range.json` rooms vs. shipped systems; remove/replace any room that references a feature not yet in this branch.
+- [ ] Rewrite `world/tutorial_range.py::CURRICULUM` so each lesson references only Programs/Daemons/Items/Affixes that exist in the current registries (validated by a unit test that imports both registries and asserts every lesson key resolves).
+- [ ] Tutorial dummy enemies use the same `malware_registry` species the player will fight in real runs (no bespoke `TutorialDummy` placeholder).
+- [ ] Lesson copy is sourced via `Program.explain()` / `Daemon.explain()` / `Item.explain()` — drift impossible.
+- [ ] Test: `pytest tests/test_phase10.py` extended with "every lesson references a real entity" assertion.
+
+### 12.2 Onboarding via LORE (combat / cycle / RAM literacy)
+- [ ] New `Lore` codex entries: `combat_basics`, `cpu_cycles_explained`, `ram_explained`, `cache_explained`, `program_slots`, `daemon_synergy`. Body text written in `init(0)` / `[KERNEL]` voice.
+- [ ] First-run flow: after intro cinematic, before tutorial range, surface a 3-card "Boot Briefing" (combat, cycles, RAM) using the same Stack Trace renderer.
+- [ ] Same entries unlocked permanently in Codex on first view.
+- [ ] Tutorial lessons cross-link to their lore entry ("Read more: `man combat`").
+
+### 12.3 i18n: keep OS terminology in English
+- [ ] Add a `glossary` set to `ui/i18n.py` listing terms that must NOT be translated: `RAM`, `CPU`, `cycle(s)`, `sector`, `cache`, `daemon`, `program`, `process`, `kernel`, `run`, `bit(s)`, `boot`, `crash`, `patch`, `distro`, `vendor`, `seed`, `intel`, `affix`, `pid`, `FoV`, `init(0)`.
+- [ ] Sweep `ui/i18n.py` Turkish strings: replace any translated occurrences of the glossary terms back to their English forms (e.g. "Çalıştırma" → "Run", "Bellek" → "RAM").
+- [ ] Add a unit test that loads each locale and asserts no glossary term appears translated.
+- [ ] Rename main-menu label `menu.new_run` Turkish copy from "Yeni Çalıştırma" → "Yeni Run".
+
+### 12.4 RUN HUD: layout fix + new readouts
+- [ ] Fix overlap: move bottom action hints ("move / attack…") into a dedicated `BottomBar` widget that reserves vertical space; viewport recomputes available height accordingly (no more text drawn over tiles).
+- [ ] Add **damage-dealt-this-turn** popover on the run-info card (also visible as floating number when > 0).
+- [ ] Add **enemy HP bar** above each visible enemy sprite (3-segment glassmorphism style, hidden when full).
+- [ ] Perk-gated AoE preview: when player owns the new `tcpdump+` Daemon (upgrade of existing `tcpdump`), show telegraphed AoE tiles for `Sapper`/`Caster` archetypes (tinted overlay, low alpha).
+- [ ] Tooltip / hover layer respects the new BottomBar reservation — no overlap with mini-help row.
+- [ ] Tests: snapshot test of HUD layout rectangles asserting non-overlap.
+
+### 12.5 Main-menu redesign: navigable "Boot Map"
+- [ ] New state `MENU_MAP`: an interactive scene where `init(0)` walks on a small grid between labeled "kiosks" (Run, Daily, Help, Codex, Stats, Settings, Quit). Bumping a kiosk activates its panel.
+- [ ] Reuse player sprite + idle/walk animations from Phase 7.2.
+- [ ] Old keyboard menu (`MenuStateHandler`) kept as a fallback (toggle in Settings → "Classic menu").
+- [ ] Tests: `test_menu_map.py` smoke-tests kiosk activation per direction, asserts no DB writes.
+
+### 12.6 Menu consolidation into terminal tabs
+- [ ] New `TabbedPanel` UI primitive in `ui/renderer.py`: top tab strip styled like a terminal multiplexer (zsh-tab look), `TAB`/`SHIFT+TAB` cycles, `1..n` jumps directly.
+- [ ] Group A — **Manual**: tabs `Tutorial`, `How to Play`, `Codex`. Single state `STATE_MANUAL`. Old states (`HOWTOPLAY`, `CODEX`, `TUTORIAL` entrypoint) route through it.
+- [ ] Group B — **Launch**: tabs `New Run`, `Daily Run`. Single state `STATE_LAUNCH`. Replaces direct hops from menu.
+- [ ] Group C — **Records**: tabs `High Scores`, `Daily Board`, `Stats`, `Bestiary`. Single state `STATE_RECORDS`.
+- [ ] Update menu kiosks (12.5) and classic menu to point at the 3 grouped entries.
+- [ ] Tests: tab cycling, deep-link (open at specific tab), back-key behavior.
+
+### 12.7 Sector ladder visibility (Balatro 8×3)
+- [ ] Promote `RunProgress` ladder widget from "small chip" to a persistent vertical strip on the run-info card: 8 releases × 3 milestones = 24 dots, current dot highlighted, bosses marked with a skull glyph.
+- [ ] Hovering / pressing **L** toggles a fullscreen overlay version with target scores per milestone.
+- [ ] Visual style synced with terminal-tab theme.
+
+### 12.8 Inter-sector cinematic transition
+- [ ] New `CinematicPlayer` script: 1.2 s "descent" animation between milestones — terminal-style `cd /sector/0xNN/` typed line, screen wipe, sub-bass thump from music layer, ladder dot tweens.
+- [ ] Skippable with **SPACE**; auto-skip on second view per run.
+- [ ] Reused by all sector→sector transitions and by the entry to a Boss milestone (longer variant).
+- [ ] Tests: state-transition snapshot + skip behavior.
+
+### 12.9 Boss phase-transition spectacle
+- [ ] On every phase boundary in `BossEncounter`: hard screen flash, brief letterbox, 0.4 s music stem cut → re-enter with new phase stem, console `[KERNEL] !!! phase shift !!!` line, boss sprite glitches/recolors.
+- [ ] Each existing boss gets an authored `phase_intro` line + arena-mutation hook (e.g. `BufferOverflow` adds extra cover blocks at phase 2).
+- [ ] Tests: `test_phase9` extended — phase boundary fires exactly one transition event.
+
+### 12.10 Vendor visual redesign
+- [ ] Reskin Vendor as a CRT shop terminal: ASCII storefront banner, three "shelf" rows (Programs / Daemons / Patches+Consumables), price tags using bit-style glyphs.
+- [ ] Item cards get hover-lift, rarity glow, and an inline `explain()` panel.
+- [ ] Reroll button styled as a `kill -HUP vendor` command.
+- [ ] Vendor NPC portrait (tied to Phase 7 supporting NPCs) shown top-left with one rotating flavor line per visit.
+- [ ] Layout tests asserting no overlap with HUD reservations.
+
+### 12.11 Visualized LORE / dialogue scenes
+- [ ] New renderer `ui/dialogue.py`: portrait + name plate + typewriter dialogue box, configurable left/right placement.
+- [ ] Author 5 scripted scenes for existing lore beats (intro, first kill, first boss, first distro success, ending).
+- [ ] Stack Trace interstitial keeps its terse style; full scenes only on milestones.
+- [ ] Portraits are stylized 48×48 pixel art (init(0), THE_LEAK, KERNEL, VENDOR, MENTOR) — drawn programmatically for now; sprite slots reserved for future hand-drawn art.
+- [ ] Tests: dialogue script playback, skip behavior.
+
+### 12.12 Arrow-key glyph rendering fix
+- [ ] Add four glyph constants (`↑↓←→`) to the embedded font OR fall back to ASCII `[Up]/[Down]/[Left]/[Right]` when missing.
+- [ ] Replace every use site (mini help bar, tutorial copy, dialogues, vendor instructions) with a `key_glyph()` helper that picks glyph vs. ASCII based on font support.
+- [ ] Test: render the help bar headlessly and assert no `tofu` (`?` block) codepoints.
+
+### 12.13 Self-quit run reward
+- [ ] In `GameEngine._end_run()`: if the player ended via the in-game pause menu's "Abort run" (not crash), grant **partial** meta `bits` proportional to current run score (cap 25%), award no Distro unlock and no lore.
+- [ ] Console log clearly distinguishes `[init] graceful shutdown` from `[init] dumped core`.
+- [ ] Tests: aborted run writes a `runs` row with status=`aborted`, `bits_delta > 0`, no Distro side-effects.
+
+### 12.14 Boss dev menu (both routes)
+- [ ] Hidden main-menu kiosk (or classic-menu row) shown only when env var `KQ_DEV=1`: opens a Boss Test Range that lets you pick any boss and fight it in its arena with full kit.
+- [ ] Tutorial Range Polygon overlay (`~`) gets a dedicated `Boss` kind tab with all 6+ bosses; "Show me" auto-plays a 5-second scripted demo of phase 1 → phase 2 transition.
+- [ ] Boss Test Range never writes to `runs`/`scores`/`bits`.
+- [ ] Tests: env-gated kiosk visibility, Polygon boss spawn smoke test.
+
+### 12.15 Original menu music (synthesized in repo)
+- [ ] New module `ui/menu_theme.py`: generates a "safe bed" looped chiptune track procedurally with `numpy` + `pygame.sndarray` (saw-pad chord progression in A minor, 80 BPM, 4-bar loop, soft sub-bass, optional shimmer pad). Output cached to `assets/audio/menu_safe.ogg` on first launch.
+- [ ] Plays on `MENU` / `MENU_MAP` / tabbed-manual / launch / records states; ducks to 30% during quit-confirm modal.
+- [ ] Replaces the current adaptive bed only on menu states; in-run music untouched.
+- [ ] Test: audio module imports headlessly without opening a real device; cache file written exactly once.
+
+### 12.16 Documentation & changelog
+- [ ] Update `HOWTOPLAY.md` to reflect tabbed menus, sector ladder, abort reward, dev menu.
+- [ ] `CHANGELOG.md` entry per merged PR (Conventional-Commits style).
+
+**Exit criteria:** A new tester opening the game on this branch reads zero out-of-game docs, navigates the boot-map menu, completes a refreshed tutorial that teaches RAM/cycles/combat in lore voice, plays a run with a non-overlapping HUD that shows enemy HP and damage dealt, watches a sector ladder progress with proper transitions, fights a boss whose phase changes feel like *events*, and — even on a self-aborted run — comes back to a menu that already offers them a couple of meta `bits` to spend.
+
+---
+
 ## Stretch Goals
 
 - [ ] Replay system (record input + seed, replay deterministically).
