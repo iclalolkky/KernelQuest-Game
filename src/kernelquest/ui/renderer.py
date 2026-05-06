@@ -340,6 +340,35 @@ class UIManager:
         )
         self.screen.blit(hint, hint.get_rect(center=(cx, WINDOW_HEIGHT - 40)))
 
+    def render_quit_confirm(self) -> None:
+        """Modal overlay asking the player to confirm exit."""
+        overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 180))
+        self.screen.blit(overlay, (0, 0))
+
+        cx = WINDOW_WIDTH // 2
+        cy = WINDOW_HEIGHT // 2
+        box_w, box_h = 560, 200
+        box = pygame.Rect(cx - box_w // 2, cy - box_h // 2, box_w, box_h)
+        glass = pygame.Surface(box.size, pygame.SRCALPHA)
+        glass.fill((*theme.PANEL_BG, 235))
+        self.screen.blit(glass, box.topleft)
+        pygame.draw.rect(self.screen, theme.NEON_MAGENTA, box, width=2, border_radius=10)
+
+        title = self.font_body.render("ÇIKIŞ ONAYI", True, theme.NEON_MAGENTA)
+        self.screen.blit(title, title.get_rect(center=(cx, box.y + 36)))
+        msg = self.font_body.render(
+            "Oyundan çıkmak istediğine emin misin?", True, theme.TEXT_PRIMARY
+        )
+        self.screen.blit(msg, msg.get_rect(center=(cx, box.y + 84)))
+
+        hint = self.font_small.render(
+            "[Y] / [Enter] evet, çık     [N] / [Esc] hayır, menüye dön",
+            True,
+            theme.TEXT_DIM,
+        )
+        self.screen.blit(hint, hint.get_rect(center=(cx, box.y + box_h - 36)))
+
     def render_high_scores(self, rows: list[tuple[str, int, int, str, str]]) -> None:
         self.clear()
         cx = WINDOW_WIDTH // 2
@@ -673,8 +702,8 @@ class UIManager:
             self._blit_text(text, (text_x, ty), color, self.font_body)
             ty += line_h
 
-        # Demo RAM bar.
-        demo_y = oy + cell + 80
+        # Demo RAM bar - placed below both the avatar caption and the rows.
+        demo_y = max(ty + 24, oy + cell + 64)
         self._blit_text("RAM bar örnekleri:", (ox, demo_y), theme.TEXT_PRIMARY, self.font_body)
         demo_y += 24
         for ratio, color, label in (
@@ -753,7 +782,7 @@ class UIManager:
             self._blit_text(header, (tx, y + 22), theme.TEXT_DIM, self.font_small)
             for i, line in enumerate(desc):
                 self._blit_text(line, (tx, y + 44 + i * line_h), theme.TEXT_PRIMARY, self.font_body)
-            y += cell + 36
+            y += cell + 60
 
         self._blit_text(
             "İpucu: Her düşmanın üstünde HP/MaxHP rakamı ve renkli pip-bar görünür.",

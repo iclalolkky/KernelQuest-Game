@@ -172,10 +172,12 @@ class GameEngine:
                 self._handle_settings_key(event)
             elif self._state is GameState.TUTORIAL:
                 self._handle_tutorial_key(event)
+            elif self._state is GameState.QUIT_CONFIRM:
+                self._handle_quit_confirm_key(event)
 
     def _handle_menu_key(self, event: pygame.event.Event) -> None:
         if event.key == pygame.K_ESCAPE:
-            self._state = GameState.QUIT
+            self._state = GameState.QUIT_CONFIRM
             return
         if event.key in (pygame.K_UP, pygame.K_w):
             self._menu_index = (self._menu_index - 1) % len(_MENU_OPTIONS)
@@ -203,7 +205,13 @@ class GameEngine:
             self._settings_index = 0
             self._state = GameState.SETTINGS
         elif choice == "Çıkış":
+            self._state = GameState.QUIT_CONFIRM
+
+    def _handle_quit_confirm_key(self, event: pygame.event.Event) -> None:
+        if event.key in (pygame.K_y, pygame.K_RETURN, pygame.K_KP_ENTER):
             self._state = GameState.QUIT
+        elif event.key in (pygame.K_n, pygame.K_ESCAPE):
+            self._state = GameState.MENU
 
     def _handle_back_key(self, event: pygame.event.Event) -> None:
         if event.key in (pygame.K_ESCAPE, pygame.K_RETURN, pygame.K_KP_ENTER):
@@ -352,6 +360,9 @@ class GameEngine:
             ui.render_settings(self._settings_rows(), self._settings_index)
         elif self._state is GameState.TUTORIAL:
             ui.render_tutorial(self._tutorial_page)
+        elif self._state is GameState.QUIT_CONFIRM:
+            ui.render_menu(list(_MENU_OPTIONS), self._menu_index)
+            ui.render_quit_confirm()
         ui.present()
 
     # ----- transitions -----
