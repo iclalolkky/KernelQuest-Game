@@ -13,6 +13,12 @@ from kernelquest.core.states.game_over_state import (
     GameOverStateHandler,
     RunSummaryStateHandler,
 )
+from kernelquest.core.states.hub_states import (
+    LaunchHubStateHandler,
+    ManualHubStateHandler,
+    RecordsHubStateHandler,
+)
+from kernelquest.core.states.menu_map_state import MenuMapStateHandler
 from kernelquest.core.states.menu_states import (
     DailyBoardStateHandler,
     DistroSelectStateHandler,
@@ -70,6 +76,10 @@ def build_state_registry() -> dict[GameState, GameStateHandler]:
         GameState.CODEX: CodexStateHandler(),
         GameState.GAME_OVER: GameOverStateHandler(),
         GameState.RUN_SUMMARY: RunSummaryStateHandler(),
+        GameState.MANUAL_HUB: ManualHubStateHandler(),
+        GameState.LAUNCH_HUB: LaunchHubStateHandler(),
+        GameState.RECORDS_HUB: RecordsHubStateHandler(),
+        GameState.MENU_MAP: MenuMapStateHandler(),
     }
 
 
