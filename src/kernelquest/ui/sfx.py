@@ -1,4 +1,4 @@
-"""Synthesized SFX. Falls back to silent no-ops if the audio device is missing."""
+"""Sentezlenmiş SFX. Ses cihazı eksikse sessiz no-op'lara geri döner."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ _CHIPTUNE_NOTE_MS: Final[int] = 180
 
 
 def _square_wave(frequency: float, duration_ms: int) -> bytes:
-    """Render a stereo 16-bit square wave to a raw PCM buffer."""
+    """Ham PCM tamponuna stereo 16-bit kare dalga renderla."""
     sample_count = int(AUDIO_SAMPLE_RATE * duration_ms / 1000)
     period = max(1, int(AUDIO_SAMPLE_RATE / max(1.0, frequency)))
     samples = array("h")
@@ -66,7 +66,7 @@ def _sweep(start_hz: float, end_hz: float, duration_ms: int) -> bytes:
 
 
 def _chiptune_loop() -> bytes:
-    """Concatenate `_CHIPTUNE_NOTES` into a single seamless triangle-ish loop."""
+    """`_CHIPTUNE_NOTES`'u tek bir kesintisiz üçgen benzeri döngüde birleştir."""
     samples = array("h")
     for freq in _CHIPTUNE_NOTES:
         sample_count = int(AUDIO_SAMPLE_RATE * _CHIPTUNE_NOTE_MS / 1000)
@@ -74,12 +74,12 @@ def _chiptune_loop() -> bytes:
         for i in range(sample_count):
             position = i / sample_count
             envelope = min(position * 8.0, 1.0) * min((1.0 - position) * 8.0, 1.0) * 0.45
-            # Triangle-ish wave for a softer chiptune feel.
+            # Daha yumuşak bir chiptune hissi için üçgen benzeri dalga.
             tri = 2 * abs((i % period) / period - 0.5) - 0.5
             value = int(_AMPLITUDE * tri * envelope)
             samples.append(value)
             samples.append(value)
-        # Tiny inter-note gap to mask boundary clicks.
+        # Kenar tıklamalarını maskelemek için notlar arası küçük boşluk.
         gap = int(AUDIO_SAMPLE_RATE * 0.01)
         for _ in range(gap):
             samples.append(0)
@@ -88,7 +88,7 @@ def _chiptune_loop() -> bytes:
 
 
 class SoundManager:
-    """Plays short procedurally-generated SFX. Silent if audio init fails."""
+    """Kısa prosedürel olarak üretilen SFX'leri çalar. Ses başlatma başarısızsa sessizdir."""
 
     def __init__(self) -> None:
         self._enabled = False
@@ -102,7 +102,7 @@ class SoundManager:
                 pygame.mixer.init(frequency=AUDIO_SAMPLE_RATE, size=-16, channels=2)
             self._enabled = pygame.mixer.get_init() is not None
         except pygame.error as exc:  # pragma: no cover - depends on host audio
-            log.info("SoundManager disabled (no audio device): %s", exc)
+            log.info("SoundManager devre dışı bırakıldı (ses cihazı yok): %s", exc)
             self._enabled = False
 
         if self._enabled:

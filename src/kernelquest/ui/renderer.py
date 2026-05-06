@@ -1,5 +1,3 @@
-"""Pygame rendering. The UI layer is render-only - it never mutates state."""
-
 from __future__ import annotations
 
 import math
@@ -49,7 +47,7 @@ _LEVEL_COLORS: dict[LogLevel, tuple[int, int, int]] = {
 _CONSOLE_HEIGHT = 120
 
 
-# ---- Tutorial (Türkçe, görsel destekli) ---------------------------------------
+# Tutorial
 
 _TUTORIAL_PAGE_TITLES: tuple[str, ...] = (
     "1. GENEL BAKIŞ - HUD PANELİ",
@@ -73,7 +71,6 @@ def _dim(color: tuple[int, int, int], factor: float) -> tuple[int, int, int]:
 
 
 class UIManager:
-    """Owns all `pygame.draw` calls."""
 
     def __init__(self, screen: pygame.Surface) -> None:
         self.screen = screen
@@ -83,15 +80,11 @@ class UIManager:
         self._wave_phase: float = 0.0
         self._fx_rng = random.Random(0xC0FFEE)
 
-    # ----- frame plumbing -----
-
     def clear(self) -> None:
         self.screen.fill(theme.BACKGROUND)
 
     def present(self) -> None:
         pygame.display.flip()
-
-    # ----- world rendering -----
 
     def render_world(
         self,
@@ -172,7 +165,6 @@ class UIManager:
             pip_rect = pygame.Rect(sx + 4 + i * pip_w, sy + 1, max(2, pip_w - 1), 3)
             pygame.draw.rect(self.screen, pip_color, pip_rect)
 
-        # Numeric HP overlay so the player can see exact remaining HP.
         hp_text = f"{enemy.hp}/{enemy.max_hp}"
         hp_surface = self.font_small.render(hp_text, True, theme.TEXT_PRIMARY)
         shadow = self.font_small.render(hp_text, True, theme.BACKGROUND)
@@ -200,8 +192,6 @@ class UIManager:
             pygame.draw.circle(surface, (*p.color, p.alpha), (size, size), size)
             self.screen.blit(surface, (sx - size, sy - size))
 
-    # ----- HUD -----
-
     def render_hud(self, player: Player, sector: int, world: World) -> None:
         panel_x = WINDOW_WIDTH - 280
         panel_rect = pygame.Rect(panel_x, 16, 264, WINDOW_HEIGHT - 32 - _CONSOLE_HEIGHT)
@@ -220,7 +210,6 @@ class UIManager:
         self._blit_text(f"Process : {player.name}", (x, y), theme.TEXT_PRIMARY, self.font_body)
         y += 28
 
-        # RAM bar (color shifts when low).
         ram_ratio = player.ram / max(1, player.max_ram)
         ram_color = theme.NEON_GREEN
         if ram_ratio < 0.25:
@@ -234,7 +223,6 @@ class UIManager:
         self._render_bar((x, y), 232, 10, ram_ratio, ram_color)
         y += 22
 
-        # CPU sine-wave canvas.
         self._blit_text(
             f"CYCLES  : {player.cpu_cycles}/{player.max_cpu_cycles}",
             (x, y),
@@ -279,7 +267,6 @@ class UIManager:
             )
             y += 22
 
-        # Mini-map.
         self._render_minimap(world, (x, y))
         y += world.grid.height * HUD_MINIMAP_TILE + 12
 
@@ -316,8 +303,6 @@ class UIManager:
             self.screen.blit(msg, (pad_x + 64, y))
             y += line_h
 
-    # ----- screens -----
-
     def render_menu(self, options: list[str], selected: int) -> None:
         self.clear()
         title_surface = self.font_title.render("KERNEL QUEST", True, theme.NEON_CYAN)
@@ -341,7 +326,7 @@ class UIManager:
         self.screen.blit(hint, hint.get_rect(center=(cx, WINDOW_HEIGHT - 40)))
 
     def render_quit_confirm(self) -> None:
-        """Modal overlay asking the player to confirm exit."""
+
         overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 180))
         self.screen.blit(overlay, (0, 0))
@@ -514,12 +499,7 @@ class UIManager:
         self.screen.blit(hint, hint.get_rect(center=(cx, WINDOW_HEIGHT - 40)))
 
     def render_tutorial(self, page: int) -> None:
-        """Render a single tutorial page (0-indexed) with paging hints.
 
-        Each page draws actual in-game iconography (enemy sprites, tile colors,
-        item glyphs, mock HUD) so a brand-new player can recognize them at a
-        glance once the run starts.
-        """
         self.clear()
         cx = WINDOW_WIDTH // 2
         page = max(0, min(TUTORIAL_PAGE_COUNT - 1, page))
@@ -554,7 +534,6 @@ class UIManager:
         )
         self.screen.blit(hint, hint.get_rect(center=(cx, WINDOW_HEIGHT - 40)))
 
-    # ----- tutorial helpers -----
 
     def _tutorial_overview(self, top: int) -> None:
         """Mock HUD with callouts: RAM, CYCLES, HASAR, SCORE, CACHE, MINIMAP."""
@@ -568,7 +547,6 @@ class UIManager:
             self.font_body,
         )
 
-        # Mock HUD panel.
         panel_w = 280
         panel_h = 360
         panel_x = cx - 460
@@ -634,7 +612,6 @@ class UIManager:
             num = self.font_small.render(f"{i + 1}", True, theme.TEXT_DIM)
             self.screen.blit(num, (slot_rect.x, slot_rect.bottom + 2))
 
-        # Callouts pointing from the panel to descriptions on the right.
         callouts = [
             (ram_y + 10, "RAM = canın. 0 olursa SYSTEM CRASH olur.", theme.NEON_GREEN),
             (cycles_y + 10, "CYCLES = bu turda harcayabileceğin enerji.", theme.NEON_AMBER),
@@ -648,7 +625,6 @@ class UIManager:
             pygame.draw.line(self.screen, color, (line_start_x, cy_), (text_x - 10, cy_), 1)
             self._blit_text(text, (text_x, cy_ - 10), color, self.font_body)
 
-        # Bottom note about minimap & console.
         note_y = panel_y + panel_h + 16
         self._blit_text(
             "Panelin altında MINIMAP (sektörün küçük haritası) yer alır.",
@@ -664,9 +640,9 @@ class UIManager:
         )
 
     def _tutorial_character(self, top: int) -> None:
-        """Player avatar + RAM/CYCLES bars with explanations."""
+
         cx = WINDOW_WIDTH // 2
-        # Player sprite (same as in-game render_player).
+
         cell = 64
         ox = cx - 380
         oy = top + 20
@@ -696,7 +672,6 @@ class UIManager:
             self._blit_text(text, (text_x, ty), color, self.font_body)
             ty += line_h
 
-        # Demo RAM bar - placed below both the avatar caption and the rows.
         demo_y = max(ty + 24, oy + cell + 64)
         self._blit_text("RAM bar örnekleri:", (ox, demo_y), theme.TEXT_PRIMARY, self.font_body)
         demo_y += 24
@@ -717,7 +692,7 @@ class UIManager:
         )
 
     def _tutorial_enemies(self, top: int) -> None:
-        """Three rows: real enemy sprite + name + behaviour description."""
+
         cx = WINDOW_WIDTH // 2
         cell = 64
         ox = cx - 460
@@ -763,7 +738,7 @@ class UIManager:
         y = top + 10
         line_h = self.font_body.get_height() + 4
         for cls, max_hp, current_hp, name, header, desc in rows:
-            # Real-style sprite with HP pips and HP number overlay.
+
             self._tutorial_draw_enemy(cls, max_hp, current_hp, ox, y, cell)
             color_map = {
                 SyntaxError_: theme.ENEMY_SYNTAX_ERROR,
@@ -788,7 +763,6 @@ class UIManager:
     def _tutorial_draw_enemy(
         self, cls: type[Malware], max_hp: int, hp: int, ox: int, oy: int, cell: int
     ) -> None:
-        """Render a single enemy preview (matches in-game `_render_enemy`)."""
         color_map = {
             SyntaxError_: theme.ENEMY_SYNTAX_ERROR,
             LogicBomb: theme.ENEMY_LOGIC_BOMB,
@@ -818,7 +792,6 @@ class UIManager:
         self.screen.blit(hp_surface, hp_rect)
 
     def _tutorial_map(self, top: int) -> None:
-        """Real tile palette + walkability rules + player-on-tile demo."""
         cx = WINDOW_WIDTH // 2
         cell = 56
         ox = cx - 460
@@ -881,7 +854,6 @@ class UIManager:
                     2,
                 )
 
-        # Fog-of-war note.
         note_y = demo_y + cell + 16
         self._blit_text(
             "Görüş açın sınırlıdır. Kareler kararır.",
@@ -897,7 +869,6 @@ class UIManager:
         )
 
     def _tutorial_items(self, top: int) -> None:
-        """Item glyphs as drawn on the floor + cache strip + usage explanation."""
         cx = WINDOW_WIDTH // 2
         ox = cx - 460
         cell = 56
@@ -939,7 +910,6 @@ class UIManager:
             self._blit_text(desc, (tx, y + 28), theme.TEXT_PRIMARY, self.font_body)
             y += cell + 12
 
-        # Cache strip visualization.
         strip_y = y + 16
         self._blit_text(
             "CACHE: HUD'da ki envanterin. [1..9] tuşlarıyla istediğini kullanabilirsin.",
@@ -990,7 +960,6 @@ class UIManager:
         )
 
     def _tutorial_score_meta(self, top: int) -> None:
-        """Score table + bits formula + shop list."""
         cx = WINDOW_WIDTH // 2
         ox = cx - 460
         line_h = self.font_body.get_height() + 6
@@ -1118,8 +1087,6 @@ class UIManager:
         self.screen.blit(prompt, prompt.get_rect(center=(cx, cy + 10)))
         self.screen.blit(name_text, name_text.get_rect(center=(cx, cy + 60)))
 
-    # ----- helpers -----
-
     def _blit_text(
         self,
         text: str,
@@ -1146,7 +1113,6 @@ class UIManager:
         pygame.draw.rect(self.screen, theme.GRID_LINE, bg, width=1, border_radius=3)
 
     def _render_cpu_wave(self, pos: tuple[int, int], player: Player) -> None:
-        """Live sine wave whose amplitude tracks current CPU cycles."""
         self._wave_phase += 0.18
         rect = pygame.Rect(pos[0], pos[1], HUD_CPU_WAVE_WIDTH, HUD_CPU_WAVE_HEIGHT)
         pygame.draw.rect(self.screen, theme.PANEL_BG, rect, border_radius=3)

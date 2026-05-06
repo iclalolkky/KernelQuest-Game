@@ -1,4 +1,4 @@
-"""Repositories - typed query helpers over `Database`."""
+"""Depolar - `Database` üzerinde yazılmış sorgu yardımcıları."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from kernelquest.data.upgrades_catalog import CATALOG, get_upgrade
 
 @dataclass(frozen=True)
 class ScoreRecord:
-    """A single row in the `scores` table."""
+    """`scores` tablosundaki tek bir satır."""
 
     id: int
     player_name: str
@@ -21,7 +21,7 @@ class ScoreRecord:
 
 
 class ScoreRepository:
-    """CRUD for the `scores` table."""
+    """`scores` tablosu için CRUD."""
 
     def __init__(self, database: Database) -> None:
         self._db = database
@@ -33,7 +33,7 @@ class ScoreRepository:
         total_score: int,
         crash_cause: str,
     ) -> int:
-        """Insert a new score row and return its `id`."""
+        """Yeni bir skor satırı ekle ve `id`'sini döndür."""
         with self._db.connection:
             cursor = self._db.connection.execute(
                 """
@@ -48,7 +48,7 @@ class ScoreRepository:
         return score_id
 
     def top_n(self, n: int) -> list[ScoreRecord]:
-        """Return the top `n` rows sorted by `total_score` descending."""
+        """`total_score`'a göre azalan sıralanmış en üst `n` satırı döndür."""
         if n < 0:
             raise ValueError("n must be non-negative")
         rows = self._db.connection.execute(
@@ -73,7 +73,7 @@ class ScoreRepository:
 
 @dataclass(frozen=True)
 class RunRecord:
-    """A single row in the `runs` table."""
+    """`runs` tablosundaki tek bir satır."""
 
     id: int
     player_name: str
@@ -86,7 +86,7 @@ class RunRecord:
 
 
 class RunRepository:
-    """CRUD + aggregations for the `runs` table."""
+    """`runs` tablosu için CRUD + toplamalar."""
 
     def __init__(self, database: Database) -> None:
         self._db = database
@@ -154,7 +154,7 @@ class RunRepository:
 
 
 class MetaRepository:
-    """Generic key/value store for cross-run state (e.g. `bits`, settings)."""
+    """Çapraz çalıştırma durumu için genel anahtar/değer deposu (örn. `bits`, ayarlar)."""
 
     def __init__(self, database: Database) -> None:
         self._db = database
@@ -191,7 +191,7 @@ class MetaRepository:
 
 
 class UpgradeRepository:
-    """Per-key meta-progression upgrade levels."""
+    """Anahtar başına meta-ilerleme yükseltme seviyeleri."""
 
     def __init__(self, database: Database) -> None:
         self._db = database

@@ -53,7 +53,7 @@ class World:
         return self.enemy_at(position) is not None
 
     def occupied_positions(self) -> set[tuple[int, int]]:
-        """Positions other entities currently sit on (excluding the queried one)."""
+        """Diğer varlıkların şu anda oturduğu konumlar (sorgulanan hariç)."""
         return {e.position for e in self.enemies if e.is_alive} | {self.player.position}
 
     # ----- mutations -----

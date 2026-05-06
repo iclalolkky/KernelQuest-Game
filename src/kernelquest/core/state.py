@@ -1,4 +1,4 @@
-"""High-level game state machine."""
+"""Üst düzey oyun durum makinesi."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from enum import Enum, auto
 
 
 class GameState(Enum):
-    """Top-level state of the GameEngine."""
+    """GameEngine'in üst düzey durumu."""
 
     MENU = auto()
     PLAYING = auto()

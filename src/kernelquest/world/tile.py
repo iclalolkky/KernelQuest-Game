@@ -1,4 +1,4 @@
-"""Tile type definitions for the memory grid."""
+"""Bellek grid'i için kare türü tanımları."""
 
 from __future__ import annotations
 
@@ -6,14 +6,14 @@ from enum import Enum, auto
 
 
 class TileType(Enum):
-    """A cell in the `MemoryGrid`."""
+    """`MemoryGrid`'de bir hücre."""
 
     EMPTY = auto()
-    SYSTEM_DATA = auto()  # impassable wall
-    BAD_SECTOR = auto()  # walkable but harmful
-    EXIT = auto()  # descend to next sector
+    SYSTEM_DATA = auto()  # geçilemez duvar
+    BAD_SECTOR = auto()  # geçilebilir ama zararlı
+    EXIT = auto()  # bir sonraki sektöre in
 
     @property
     def walkable(self) -> bool:
-        """Whether an entity may step onto this tile."""
+        """Bir varlığın bu kareye adım atıp atamayacağı."""
         return self is not TileType.SYSTEM_DATA

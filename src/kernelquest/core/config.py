@@ -1,6 +1,6 @@
-"""Centralized constants and tunables.
+"""Merkezi sabitler ve ayarlanabilir değerler.
 
-Keep magic numbers out of game logic - import from here instead.
+Sihirli sayıları oyun mantığından uzak tut - buradan içe aktar.
 """
 
 from __future__ import annotations

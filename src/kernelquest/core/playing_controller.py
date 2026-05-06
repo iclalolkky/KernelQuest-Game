@@ -1,9 +1,9 @@
-"""Gameplay (PLAYING / GAME_OVER) input + turn loop.
+"""Oyun oynama (PLAYING / GAME_OVER) giriş + tur döngüsü.
 
-The :class:`PlayingController` owns the per-turn logic that mutates the
-world: handling player keys, attacks, movement, descent, enemy turns, and
-the game-over save flow. It also offers the entry point used by
-:class:`MenuController` to spin up a fresh run.
+:class:`PlayingController` dünyayı değiştiren her tur mantığını sahip olur:
+oyuncu tuşlarını işleme, saldırılar, hareket, iniş, düşman turları ve
+oyun sonu kaydetme akışı. Ayrıca :class:`MenuController` tarafından
+kullanılan yeni bir koşu başlatma giriş noktasını sunar.
 """
 
 from __future__ import annotations
@@ -52,7 +52,7 @@ _KEY_BITS = "meta.bits"
 
 @dataclass
 class RunMeta:
-    """Per-run bookkeeping (seed, start time)."""
+    """Her koşu için kayıt tutma (tohum, başlangıç zamanı)."""
 
     seed: int
     started_at: float = field(default_factory=time.monotonic)
@@ -62,7 +62,7 @@ class RunMeta:
 
 
 class PlayingController:
-    """Owns the gameplay turn loop and game-over flow."""
+    """Oyun oynama tur döngüsünü ve oyun sonu akışını sahip olur."""
 
     def __init__(self, engine: GameEngine) -> None:
         self._engine = engine

@@ -1,4 +1,4 @@
-"""Data package: SQLite I/O is confined to this module.
+"""Veri paketi: SQLite I/O bu modülle sınırlıdır.
 
-No other package in the project should import `sqlite3` directly.
+Projedeki hiçbir diğer paket `sqlite3` doğrudan içe aktarmamalıdır.
 """

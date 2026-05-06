@@ -1,4 +1,4 @@
-"""Base entity for anything that lives on the grid."""
+"""Grid'de yaşayan herhangi bir şey için temel varlık."""
 
 from __future__ import annotations
 
@@ -7,10 +7,10 @@ from dataclasses import dataclass
 
 @dataclass
 class Entity:
-    """An object that occupies a single tile.
+    """Tek bir kareyi işgal eden bir nesne.
 
-    Subclasses add behavior (player, malware, items). Pygame is **never**
-    imported here - rendering is the renderer's job.
+    Alt sınıflar davranış ekler (oyuncu, malware, itemler). Pygame **asla**
+    buraya içe aktarılmaz - renderleme rendercinin işi.
     """
 
     position: tuple[int, int]

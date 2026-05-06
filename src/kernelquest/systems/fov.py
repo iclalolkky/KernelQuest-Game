@@ -1,7 +1,7 @@
-"""Field-of-view computation for the player.
+"""Oyuncu için görüş alanı hesaplama.
 
-Uses Chebyshev distance + line-of-sight via simple Bresenham segments. Tiles
-that block sight are non-walkable tiles (`SYSTEM_DATA`).
+Chebyshev mesafesi + basit Bresenham segmentleri aracılığıyla görüş hattı kullanır.
+Görüşü engelleyen kareler yürünemez karelerdir (`SYSTEM_DATA`).
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ Position = tuple[int, int]
 
 
 def compute_visible(grid: MemoryGrid, origin: Position, radius: int) -> set[Position]:
-    """Return the set of positions visible from `origin` within `radius`."""
+    """`origin`'dan `radius` içinde görünür pozisyonların kümesini döndür."""
     if radius < 0:
         return set()
     visible: set[Position] = {origin}
@@ -28,7 +28,7 @@ def compute_visible(grid: MemoryGrid, origin: Position, radius: int) -> set[Posi
 
 
 def _line_of_sight(grid: MemoryGrid, a: Position, b: Position) -> bool:
-    """Return True if no opaque tile sits strictly between `a` and `b`."""
+    """`a` ve `b` arasında sıkı bir şekilde yer alan opak bir karenin olup olmadığını kontrol et."""
     x0, y0 = a
     x1, y1 = b
     dx = abs(x1 - x0)

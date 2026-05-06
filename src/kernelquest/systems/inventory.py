@@ -1,4 +1,4 @@
-"""Inventory operations: pick-ups and item activation."""
+"""Envanter işlemleri: toplama ve item etkinleştirme."""
 
 from __future__ import annotations
 
@@ -7,10 +7,10 @@ from kernelquest.world.world import World
 
 
 def pickup_item_at(world: World, position: tuple[int, int]) -> str | None:
-    """If an item sits at `position`, move it into the player's cache.
+    """`position`'da bir item varsa, onu oyuncunun cache'ine taşı.
 
-    Returns a log message on pickup, or ``None`` if nothing happened (no item
-    present, or the cache is full).
+    Toplamada log mesajı döndür, veya hiçbir şey olmadıysa ``None``
+    (item yok, veya cache dolu).
     """
     item_id = world.items.get(position)
     if item_id is None:
@@ -22,7 +22,7 @@ def pickup_item_at(world: World, position: tuple[int, int]) -> str | None:
 
 
 def use_cache_slot(world: World, slot: int) -> str | None:
-    """Activate the item in `slot` (0-indexed). Returns a log message or ``None``."""
+    """`slot`'taki itemi etkinleştir (0-indeksli). Log mesajı veya ``None`` döndür."""
     cache = world.player.cache
     if slot < 0 or slot >= len(cache):
         return None

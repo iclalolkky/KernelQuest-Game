@@ -1,1 +1,1 @@
-"""World package: grid, tiles, fog of war."""
+"""Dünya paketi: grid, kareler, sis alanı."""

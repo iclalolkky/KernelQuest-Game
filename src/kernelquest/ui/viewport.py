@@ -1,8 +1,8 @@
-"""Viewport math: convert grid coordinates to screen pixels.
+"""Görüş penceresi matematik: grid koordinatlarını ekran piksellerine çevir.
 
-The viewport simply centers the grid in the available render area. Phase 1
-grids (20x20) fit on screen, but this abstraction is in place for larger
-sectors in later phases.
+Görüş penceresi grid'i mevcut render alanında ortaya yerleştirir. Faz 1
+grid'leri (20x20) ekrana sığar, ancak bu soyutlama sonraki fazlarda daha
+büyük sektörler için yer tutmak üzere kullanılır.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from kernelquest.core.config import TILE_SIZE
 
 @dataclass(frozen=True)
 class Viewport:
-    """Translates grid coordinates to screen pixels."""
+    """Grid koordinatlarını ekran piksellerine çevirir."""
 
     origin_x: int
     origin_y: int

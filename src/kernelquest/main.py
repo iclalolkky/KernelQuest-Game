@@ -1,9 +1,3 @@
-"""Entry point for Kernel Quest.
-
-Run with:
-
-    python -m kernelquest.main
-"""
 
 from __future__ import annotations
 
@@ -14,11 +8,7 @@ from kernelquest.core.engine import GameEngine
 
 
 def main() -> int:
-    """Bootstrap the game.
 
-    Returns:
-        Process exit code.
-    """
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",

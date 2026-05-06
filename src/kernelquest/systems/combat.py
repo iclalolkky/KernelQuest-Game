@@ -69,8 +69,7 @@ def player_attack(
 
 
 def enemy_attack(player: Player, attacker: Malware, damage: int | None = None) -> int:
-    """Apply `attacker`'s damage to the player, recording the crash cause."""
-    # Düşmanın oyuncuya verdiği hasarı uygular ve crash nedenini kaydeder.
+    """Oyuncuya 'attacker'ın hasarını uygula ve crash nedenini kaydet."""
     dmg = attacker.damage if damage is None else damage
     player.take_damage(dmg, source=attacker.crash_label)
     return dmg

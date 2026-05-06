@@ -1,4 +1,4 @@
-"""SQLite I/O. This is the **only** module allowed to import `sqlite3`."""
+"""SQLite G/Ç. Bu, `sqlite3` içe aktarmasına izin verilen **tek** modüldür."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ log = logging.getLogger(__name__)
 
 
 class Database:
-    """Thin wrapper around `sqlite3.Connection` with migration support."""
+    """Geçiş desteği ile `sqlite3.Connection` etrafındaki ince sarıcı."""
 
     def __init__(self, connection: sqlite3.Connection) -> None:
         self.connection = connection
@@ -24,7 +24,7 @@ class Database:
 
     @classmethod
     def open(cls, path: str | Path) -> Database:
-        """Open (or create) a database file and run pending migrations."""
+        """Bir veritabanı dosyası aç (veya oluştur) ve bekleyen geçişleri çalıştır."""
         conn = sqlite3.connect(str(path))
         db = cls(conn)
         db.run_migrations()
@@ -32,7 +32,7 @@ class Database:
 
     @classmethod
     def in_memory(cls) -> Database:
-        """In-memory database for tests."""
+        """Testler için bellek içi veritabanı."""
         conn = sqlite3.connect(":memory:")
         db = cls(conn)
         db.run_migrations()

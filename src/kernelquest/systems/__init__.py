@@ -1,1 +1,1 @@
-"""Systems package: combat, AI, inventory."""
+"""Sistem paketi: savaş, yapay zeka, envanter."""

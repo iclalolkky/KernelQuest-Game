@@ -1,1 +1,1 @@
-"""UI package: renderer, HUD, console log, theme."""
+"""Arayüz paketi: renderer, panel, konsol logu, tema."""

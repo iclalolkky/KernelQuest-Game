@@ -1,4 +1,4 @@
-"""In-game console log: ring-buffer of severity-tagged messages."""
+"""Oyun içi konsol logu: önem derecesine göre etiketlenmiş mesajların halka tamponu."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from kernelquest.core.config import CONSOLE_LOG_CAPACITY
 
 
 class LogLevel(StrEnum):
-    """Severity tag for a console entry."""
+    """Konsol girişi için önem derecesi etiketi."""
 
     INFO = "INFO"
     WARN = "WARN"
@@ -20,14 +20,14 @@ class LogLevel(StrEnum):
 
 @dataclass(frozen=True)
 class LogEntry:
-    """A single line in the console log."""
+    """Konsol logunda tek bir satır."""
 
     level: LogLevel
     message: str
 
 
 class ConsoleLog:
-    """Fixed-size ring buffer of `LogEntry` records (oldest first → newest last)."""
+    """`LogEntry` kayıtlarının sabit boyutlu halka tamponu (en eski ilk → en yeni son)."""
 
     def __init__(self, capacity: int = CONSOLE_LOG_CAPACITY) -> None:
         if capacity <= 0:

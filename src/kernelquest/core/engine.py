@@ -1,5 +1,3 @@
-"""Game engine: pygame init, main loop, top-level state machine."""
-
 from __future__ import annotations
 
 import logging
@@ -38,8 +36,6 @@ log = logging.getLogger(__name__)
 
 
 class GameEngine:
-    """Owns the pygame window and orchestrates state transitions."""
-    # Ana oyun motoru sınıfı, pygame penceresini ve durum geçişlerini yönetir.
 
     def __init__(self, database_path: Path | None = None, seed: int | None = None) -> None:
         self._db_path = database_path or Path(DATABASE_FILENAME)
@@ -71,10 +67,8 @@ class GameEngine:
         self._menu = MenuController(self)
         self._playing = PlayingController(self)
 
-    # ----- public entry point -----
-
     def run(self) -> None:
-        # Oyunu başlatır ve ana döngüyü çalıştırır.
+
         log.info("Booting GameEngine (db=%s)", self._db_path)
         self._database = Database.open(self._db_path)
         self._scores = ScoreRepository(self._database)
@@ -106,14 +100,12 @@ class GameEngine:
                 self._database.close()
             log.info("GameEngine shutdown complete.")
 
-    # ----- per-frame -----
-
     def _step_fx(self) -> None:
         self._shake.step()
         self._particles.step()
 
     def _handle_events(self) -> None:
-        # Kullanıcı girdilerini işler ve oyun durumuna göre yönlendirir.
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self._state = GameState.QUIT
@@ -170,7 +162,7 @@ class GameEngine:
             self._sfx.play(name)
 
     def _render(self, ui: UIManager) -> None:
-        # Geçerli oyun durumuna göre ekranı çizer.
+
         if self._state is GameState.MENU:
             ui.render_menu(list(MENU_OPTIONS), self._menu_index)
         elif self._state is GameState.PLAYING and self._world is not None:

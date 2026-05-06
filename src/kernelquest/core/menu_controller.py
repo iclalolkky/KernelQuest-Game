@@ -1,9 +1,10 @@
-"""Menu and side-screen input handling (menu, settings, shop, tutorial).
+"""Menü ve yan ekran giriş işleme (menü, ayarlar, mağaza, öğretici).
 
-This controller owns input/state-transition logic for every non-gameplay
-screen. The owning :class:`GameEngine` delegates key events here and reads
-back tabular data via :meth:`shop_rows` / :meth:`settings_rows` /
-:meth:`fetch_high_scores` / :meth:`fetch_stats` / :meth:`fetch_bits`.
+Bu denetleyici her oyun dışı ekran için giriş/durum geçiş mantığını sahip olur.
+Sahip olan :class:`GameEngine` tuş olaylarını buraya devreder ve
+:meth:`shop_rows` / :meth:`settings_rows` /
+:meth:`fetch_high_scores` / :meth:`fetch_stats` / :meth:`fetch_bits` aracılığıyla
+tablo verilerini geri okur.
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ MENU_OPTIONS: tuple[str, ...] = (
 
 
 class MenuController:
-    """Handles input + data fetching for menu and side screens."""
+    """Menü ve yan ekranlar için giriş + veri alma işlemlerini yönetir."""
 
     def __init__(self, engine: GameEngine) -> None:
         self._engine = engine

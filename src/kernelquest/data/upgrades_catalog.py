@@ -1,8 +1,8 @@
-"""Static catalog of meta-progression upgrades.
+"""Meta-ilerleme yükseltmelerinin statik kataloğu.
 
-The catalog is the source of truth; the database only stores per-key levels.
-Each upgrade exposes a deterministic level → cost function and the engine
-applies them as additive bonuses to a freshly-spawned `Player`.
+Katalog doğruluk kaynağıdır; veritabanı sadece anahtar başına seviyeleri depolar.
+Her yükseltme deterministik seviye → maliyet fonksiyonunu ortaya çıkarır ve motor
+bunları yeni doğmuş bir `Player`'a toplamsal bonuslar olarak uygular.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Upgrade:
-    """A purchasable, persistent upgrade."""
+    """Satın alınabilir, kalıcı bir yükseltme."""
 
     key: str
     label: str
@@ -24,7 +24,7 @@ class Upgrade:
     apply: Callable[[int, PlayerBonus], None]
 
     def cost_for_next_level(self, current_level: int) -> int | None:
-        """Return the cost to buy the next level, or `None` if at cap."""
+        """Sonraki seviyeyi satın alma maliyetini döndür, veya sınırdaysa `None`."""
         if current_level >= self.max_level:
             return None
         return self.base_cost + self.cost_growth * current_level
@@ -32,7 +32,7 @@ class Upgrade:
 
 @dataclass
 class PlayerBonus:
-    """Accumulator for upgrade effects applied at run start."""
+    """Çalıştırma başlangıcında uygulanan yükseltme efektleri için biriktirici."""
 
     bonus_ram: int = 0
     bonus_cycles: int = 0

@@ -1,8 +1,7 @@
-"""Procedural sector generator using a rooms-and-corridors algorithm.
+"""Oda ve koridor algoritması kullanan prosedürel sektör üreticisi.
 
-The generator is fully deterministic given a `random.Random` seed and the
-target depth. Reachability is guaranteed by carving corridors between every
-consecutive room.
+Üretici, verilen bir `random.Random` tohumu ve hedef derinlik ile tamamen deterministik.
+Ulaşılabilirlik, her ardışık oda arasında koridorlar oyarak garanti edilir.
 """
 
 from __future__ import annotations
@@ -63,9 +62,9 @@ def generate_world(
     width: int = GRID_WIDTH,
     height: int = GRID_HEIGHT,
 ) -> World:
-    """Build a fresh `World` for the given depth.
+    """Verilen derinlik için taze bir `World` oluştur.
 
-    The same `(seed, depth)` pair always yields the same world.
+    Aynı `(seed, depth)` çifti her zaman aynı dünyayı verir.
     """
     grid = _all_walls(width, height)
     rooms = _carve_rooms(grid, rng, width, height)
@@ -98,7 +97,7 @@ def generate_starting_world(
     width: int = GRID_WIDTH,
     height: int = GRID_HEIGHT,
 ) -> tuple[World, random.Random]:
-    """Convenience helper that builds a fresh `Player`, RNG, and depth-1 world."""
+    """Taze bir `Player`, RNG ve depth-1 dünyası oluşturan kolaylık yardımcısı."""
     rng = random.Random(seed)
     player = Player(position=PLAYER_START_POSITION)
     world = generate_world(player=player, depth=1, rng=rng, width=width, height=height)

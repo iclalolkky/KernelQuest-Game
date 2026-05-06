@@ -1,7 +1,7 @@
-"""Schema migrations.
+"""Şema geçişleri.
 
-Migrations are append-only and run in order. Each entry is a `(name, sql)`
-tuple where `name` follows the `NNN_description` convention.
+Geçişler ekleme-yalnızdır ve sırayla çalışır. Her giriş, `name` `NNN_description`
+kurallarını takip eden bir `(name, sql)` demetidir.
 """
 
 from __future__ import annotations

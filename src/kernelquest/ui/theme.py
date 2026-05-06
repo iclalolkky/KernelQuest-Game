@@ -1,4 +1,4 @@
-"""Tron-flavored color palette and font sizes."""
+"""Tron tarzı renk paleti ve yazı tipi boyutları."""
 
 from __future__ import annotations
 

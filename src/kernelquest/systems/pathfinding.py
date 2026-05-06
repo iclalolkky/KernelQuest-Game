@@ -1,4 +1,4 @@
-"""BFS pathfinding helpers for grid-based AI."""
+"""Grid tabanlı AI için BFS yol bulma yardımcıları."""
 
 from __future__ import annotations
 
@@ -25,11 +25,11 @@ def bfs_next_step(
     goal: Position,
     blocked: Iterable[Position] = (),
 ) -> Position | None:
-    """Return the next step from `start` along a shortest path to `goal`.
+    """`start`'tan `goal`'a en kısa yol boyunca bir sonraki adımı döndür.
 
-    `blocked` is a collection of positions occupied by other entities. The
-    goal tile itself is **not** considered blocked even if it appears in
-    `blocked` (so an enemy can target a player without being filtered out).
+    `blocked` diğer varlıklar tarafından işgal edilen pozisyonların bir koleksiyonudur.
+    Hedef kare kendisi `blocked`'de görünse bile **engellenmiş olarak kabul edilmez**
+    (böylece bir düşman oyuncuyu hedefleyebilir, filtrelenmeden).
     """
     if start == goal:
         return None

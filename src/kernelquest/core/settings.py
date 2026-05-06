@@ -1,7 +1,7 @@
-"""Player-tunable settings (volume, difficulty), persisted via `MetaRepository`.
+"""Oyuncu tarafından ayarlanabilir ayarlar (ses, zorluk), `MetaRepository` aracılığıyla kalıcı.
 
-Difficulty multiplies enemy damage and inversely scales player damage so that
-HARD makes runs noticeably more punishing without changing structure.
+Zorluk düşman hasarını çarpar ve oyuncu hasarını tersine ölçeklendirir, böylece
+HARD koşuları belirgin şekilde daha cezalandırıcı hale getirir, yapıyı değiştirmeden.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ _DIFFICULTY_ORDER: tuple[Difficulty, ...] = (Difficulty.EASY, Difficulty.NORMAL,
 
 @dataclass
 class Settings:
-    """In-memory snapshot of user settings."""
+    """Kullanıcı ayarlarının bellek içi anlık görüntüsü."""
 
     volume: float = 0.25
     difficulty: Difficulty = Difficulty.NORMAL

@@ -1,6 +1,6 @@
-"""Visual juice: screen shake and short-lived particles.
+"""Görsel efekt: ekran sallanması ve kısa ömürlü parçacıklar.
 
-Pure data + math; the renderer is responsible for drawing.
+Saf veri + matematik; çizimden renderer sorumlu.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from kernelquest.core.config import (
 
 @dataclass
 class ScreenShake:
-    """Decays toward zero each frame; sample with `offset(rng)`."""
+    """Her karede sıfıra doğru azalır; `offset(rng)` ile örnekle."""
 
     intensity: float = 0.0
 
@@ -42,7 +42,7 @@ class ScreenShake:
 
 @dataclass
 class Particle:
-    """A single short-lived visual sprite."""
+    """Tek bir kısa ömürlü görsel sprite."""
 
     x: float
     y: float
@@ -63,7 +63,7 @@ class Particle:
 
 @dataclass
 class ParticleSystem:
-    """Spawns and steps clouds of particles."""
+    """Parçacık bulutlarını doğurur ve ilerletir."""
 
     particles: list[Particle] = field(default_factory=list)
 

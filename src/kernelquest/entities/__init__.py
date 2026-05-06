@@ -1,1 +1,1 @@
-"""Entity package: base entity, player, malware."""
+"""Varlık paketi: temel varlık, oyuncu, malware."""

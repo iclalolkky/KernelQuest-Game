@@ -1,6 +1,6 @@
 """Kernel Quest: The Memory Leak.
 
-Top-level package. See `kernelquest.main` for the entry point.
+Üst düzey paket. Giriş noktası için `kernelquest.main` bölümüne bakın.
 """
 
 from __future__ import annotations

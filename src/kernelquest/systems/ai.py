@@ -1,4 +1,4 @@
-"""Enemy AI - runs after the player has spent all cycles for the turn."""
+"""Düşman AI - oyuncu tur için tüm cycle'ları harcadıktan sonra çalışır."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from kernelquest.world.world import World
 
 
 def run_enemy_turn(world: World, rng: random.Random, damage_multiplier: float = 1.0) -> list[str]:
-    """Tick every alive enemy. Returns log messages for each meaningful event."""
+    """Her canlı düşmanı tickle. Her anlamlı olay için log mesajları döndürür."""
     log: list[str] = []
     # Snapshot to avoid mutation during iteration.
     for enemy in list(world.enemies):

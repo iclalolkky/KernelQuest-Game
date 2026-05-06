@@ -1,4 +1,4 @@
-"""Items that can be collected into the player's cache."""
+"""Oyuncunun cache'ine toplanabilecek itemler."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from kernelquest.entities.player import Player
 
 @dataclass(frozen=True)
 class Item:
-    """A consumable packet stored in `Player.cache`."""
+    """`Player.cache`'de depolanan tüketilebilir bir paket."""
 
     id: str
     label: str
@@ -68,7 +68,7 @@ ALL_ITEM_IDS: tuple[str, ...] = tuple(_REGISTRY.keys())
 
 
 def get_item(item_id: str) -> Item:
-    """Look up an `Item` by its registry id."""
+    """Bir `Item`'i kayıt kimliğine göre ara."""
     if item_id not in _REGISTRY:
         raise KeyError(f"unknown item id: {item_id!r}")
     return _REGISTRY[item_id]

@@ -118,7 +118,7 @@ class Player(Entity):
         return True
 
     def add_to_cache(self, item: str) -> bool:
-        """Append `item` to the cache. Returns ``False`` if full."""
+        """Cache'e `item` ekle. Dolu ise False döner."""
         if len(self.cache) >= self.cache_capacity:
             return False
         self.cache.append(item)
