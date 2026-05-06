@@ -17,6 +17,23 @@ if TYPE_CHECKING:
     from kernelquest.core.engine import GameEngine
     from kernelquest.ui.renderer import UIManager
 
+# Phase 12.4 — keybind hints rendered in the dedicated bottom bar (so they
+# never overlap the play area or the side HUD).
+_PLAYING_HINTS: list[str] = [
+    "[↑/↓/←/→] move/attack",
+    "[space] wait",
+    "[Q/E/R] programs",
+    "[1..9] cache",
+    "[I] inspect",
+    "[?] help",
+    "[esc] menu",
+]
+_INSPECT_HINTS: list[str] = [
+    "[↑/↓/←/→] move cursor",
+    "[enter] reveal",
+    "[esc] back",
+]
+
 
 class PlayingStateHandler(GameStateHandler):
     """Active grid view: world, HUD, console."""
@@ -44,6 +61,13 @@ class PlayingStateHandler(GameStateHandler):
             world=world,
             patches=[p.label for p in engine._patches.selected],
         )
+        # Phase 12.7 — RELEASE ladder strip below the HUD column.
+        from kernelquest.core.config import WINDOW_WIDTH
+
+        ui.render_ladder_strip(engine._run_progress, (WINDOW_WIDTH - 270, 470))
+        ui.render_bottom_bar(_PLAYING_HINTS)
+        if engine._show_ladder_overlay:
+            ui.render_ladder_overlay(engine._run_progress)
         if engine._boss_active:
             boss = world.living_boss()
             if boss is not None:
@@ -56,6 +80,10 @@ class PlayingStateHandler(GameStateHandler):
             ui.render_glitch_overlay(max(0.25, engine._glitch_intensity))
         elif engine._glitch_intensity > 0.0:
             ui.render_glitch_overlay(engine._glitch_intensity)
+        # Phase 12.9 — overlay the phase-shift cinematic on top of everything
+        # except the console so the kernel line remains legible.
+        if engine._phase_shift_ttl > 0.0:
+            ui.render_phase_shift(engine._phase_shift_ttl)
         ui.render_console(engine._console)
         if engine._show_help_overlay:
             ui.render_help_overlay()
@@ -84,7 +112,8 @@ class StackTraceStateHandler(GameStateHandler):
 
     def render(self, engine: GameEngine, ui: UIManager) -> None:
         depth = engine._world.player.depth_reached if engine._world is not None else 0
-        ui.render_stack_trace(engine._stack_trace_lines, depth)
+        elapsed_ms = max(0, pygame.time.get_ticks() - engine._stack_trace_started_ms)
+        ui.render_stack_trace(engine._stack_trace_lines, depth, elapsed_ms=elapsed_ms)
 
 
 class BestiaryStateHandler(GameStateHandler):
@@ -126,6 +155,7 @@ class InspectStateHandler(GameStateHandler):
             world=world,
             patches=[p.label for p in engine._patches.selected],
         )
+        ui.render_bottom_bar(_INSPECT_HINTS)
         ui.render_console(engine._console)
         engine._render_inspect_overlay(ui)
 
