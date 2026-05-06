@@ -18,20 +18,29 @@ Or, on macOS, double-click `KernelQuest.app` (right-click → **Open** the first
 
 ## 2. Main Menu
 
-Use **↑ / ↓** (or **W / S**) to move, **Enter / Space** to confirm, **Esc** to go back.
+The default main menu is a **Boot Map**: `init(0)` walks between labelled kiosks
+along the bottom of the screen. Use **← / →** to move, **Enter / Space** to
+activate the closest kiosk, **Tab** to jump to the next kiosk, and **Esc** to
+quit. Prefer the original keyboard list? Toggle Settings → "Main Menu Layout"
+to **Classic**.
 
-| Option         | What it does                                                                 |
-| -------------- | ---------------------------------------------------------------------------- |
-| New Run        | Start a fresh procedurally-generated run.                                    |
-| Daily Run      | Date-seeded run; everyone gets the same dungeon today.                       |
-| Tutorial       | Replay the seven-step Boot Sequence guide.                                   |
-| How to Play    | Open this document inside the game (scroll with ↑/↓ or PgUp/PgDn).           |
-| High Scores    | Top runs by score, then depth.                                               |
-| Daily Board    | Local leaderboard for today's daily seed.                                    |
-| Stats          | Lifetime stats: best run, average depth, deaths per malware type.            |
-| Shop           | Spend `bits` on permanent upgrades that apply to future runs.                |
-| Settings       | Audio sliders, theme, fullscreen, UI scale, accessibility toggles.           |
-| Quit           | Exit the game.                                                               |
+The top-level menu collapses six entries into terminal-style hubs:
+
+| Kiosk      | Tabs                                                                  |
+| ---------- | --------------------------------------------------------------------- |
+| Launch     | New Run · Daily Run                                                   |
+| Manual     | Tutorial · How to Play · Codex                                        |
+| Records    | High Scores · Daily Board · Stats · Bestiary                          |
+| Shop       | Spend `bits` on permanent upgrades.                                   |
+| Settings   | Audio, theme, layout, accessibility, key glyphs.                      |
+| Quit       | Halt the kernel.                                                      |
+
+Inside any hub, **Tab / ← / →** cycle tabs, **1..n** jump directly, **Enter**
+opens the focused entry, **Esc** returns to the main menu.
+
+> **Dev menu.** Launch with `KQ_DEV=1` set in the environment to expose a
+> hidden **Boss Test Range** kiosk. The dev range never writes to your
+> `runs`, `scores`, or `bits`.
 
 ---
 
@@ -175,6 +184,20 @@ On death:
 3. Your score, depth, seed, duration, and crash cause are persisted to the local SQLite DB (and to the daily board if you were on a daily seed).
 4. **Bits** earned during the run are added to your meta-currency wallet.
 5. You return to the main menu — spend bits in the **Shop** before your next run.
+
+> **Graceful shutdown vs. core dump.** If you abort a run via the in-game pause
+> menu (`SIGINT`), the engine logs `[init] graceful shutdown` and grants 25%
+> of your would-be meta-bits. Dying outright still logs `[init] dumped core`
+> and forfeits the bonus. Aborted runs do **not** unlock distros or lore.
+
+### Sector ladder & cinematic transitions
+
+- The right-hand HUD shows a **sector ladder** strip: 8 releases × 3 milestones
+  with bosses marked. Press **L** for the fullscreen view with target scores.
+- Each sector transition plays a short typewriter `cd /sector/0xNN/` cinematic
+  (skippable with **Space**).
+- Boss phase shifts trigger a `[KERNEL] !!! phase shift !!!` console banner,
+  a hard flash, letterbox, and chroma tint.
 
 ---
 
