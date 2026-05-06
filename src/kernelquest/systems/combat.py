@@ -37,6 +37,8 @@ def player_attack(
 
     The cycle cost is the engine's responsibility - call ``player.spend_cycle()``
     before invoking this function.
+
+    Oyuncunun düşmana saldırı hareketini çözümler ve sonucu döner.
     """
     target.take_damage(damage)
     killed = not target.is_alive
@@ -68,6 +70,7 @@ def player_attack(
 
 def enemy_attack(player: Player, attacker: Malware, damage: int | None = None) -> int:
     """Apply `attacker`'s damage to the player, recording the crash cause."""
+    # Düşmanın oyuncuya verdiği hasarı uygular ve crash nedenini kaydeder.
     dmg = attacker.damage if damage is None else damage
     player.take_damage(dmg, source=attacker.crash_label)
     return dmg

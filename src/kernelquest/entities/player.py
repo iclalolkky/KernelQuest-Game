@@ -26,6 +26,7 @@ class Player(Entity):
     - ``cache``       - inventory list of collected packets.
     - ``crash_cause`` - set when ``ram`` reaches zero.
     """
+    # Oyuncu karakter sınıfı, bellek grid'inde dolaşan avatarı temsil eder.
 
     position: tuple[int, int] = PLAYER_START_POSITION
     name: str = "process_0"
@@ -56,6 +57,7 @@ class Player(Entity):
 
     def take_damage(self, amount: int, source: str) -> None:
         """Apply damage to RAM, recording the crash cause if fatal."""
+        # RAM'e hasar uygular, ölümcülse crash nedenini kaydeder.
         if amount < 0:
             raise ValueError("damage amount must be non-negative")
         self.ram = max(0, self.ram - amount)
@@ -90,6 +92,7 @@ class Player(Entity):
 
     def spend_cycle(self) -> bool:
         """Consume a single CPU cycle. Returns ``False`` if none available."""
+        # Bir CPU cycle harcar, yoksa False döner.
         if not self.is_alive or self.cpu_cycles <= 0:
             return False
         self.cpu_cycles -= 1
@@ -101,6 +104,7 @@ class Player(Entity):
         Returns ``True`` if the move succeeded (and a cycle was spent),
         ``False`` if blocked (no cycle spent).
         """
+        # Belirtilen yönde hareket etmeye çalışır, başarılı olursa cycle harcar.
         if not self.is_alive:
             return False
         if self.cpu_cycles <= 0:

@@ -683,7 +683,7 @@ class UIManager:
         ty = oy
         line_h = self.font_body.get_height() + 6
         rows: tuple[tuple[tuple[int, int, int], str], ...] = (
-            (theme.NEON_GREEN, "RAM    = Canın. Düşman, Bad Sector ve LogicBomb kullanarak azaltır."),
+            (theme.NEON_GREEN, "RAM    = Canın. Düşmanlar, Bad Sector ve LogicBomb azaltır."),
             (theme.TEXT_PRIMARY, "         0'a inerse SYSTEM CRASH olur."),
             (theme.NEON_AMBER, "CYCLES = Her tur kullanılan enerji."),
             (theme.TEXT_PRIMARY, "         Hareket = 1 cycle, saldırı = 1 cycle."),
@@ -1016,9 +1016,7 @@ class UIManager:
         )
 
         meta_y = y + line_h * 2
-        self._blit_text(
-            "META PROGRESS:", (ox, meta_y), theme.NEON_GREEN, self.font_body
-        )
+        self._blit_text("META PROGRESS:", (ox, meta_y), theme.NEON_GREEN, self.font_body)
         meta_y += 28
         self._blit_text(
             "Her RUN sonunda 'bits' kazanırsın:", (ox, meta_y), theme.TEXT_PRIMARY, self.font_body

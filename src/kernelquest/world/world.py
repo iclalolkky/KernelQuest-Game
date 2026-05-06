@@ -23,6 +23,8 @@ class World:
 
     The engine creates a new ``World`` per sector (or run). Items live as a
     sparse mapping ``position -> item_id`` to keep lookups O(1).
+
+    Tek bir sektör için değişken oyun dünyası, motor her sektör için yeni World oluşturur.
     """
 
     grid: MemoryGrid
@@ -63,6 +65,7 @@ class World:
 
     def recompute_fov(self) -> None:
         """Recalculate the visible set from the player's current position."""
+        # Oyuncunun mevcut pozisyonundan görünür kümesini yeniden hesaplar.
         radius = DEFAULT_SCAN_RADIUS + self.player.bonus_scan_radius
         if self.player.has_scan_boost:
             radius += SCAN_BOOST_RADIUS_BONUS
