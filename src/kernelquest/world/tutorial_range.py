@@ -277,6 +277,45 @@ def lesson_by_key(key: str) -> Lesson:
     raise KeyError(f"unknown lesson: {key!r}")
 
 
+# ---------------------------------------------------------------------------
+# Phase 12.1 — Lesson examples sourced from the live catalogs
+# ---------------------------------------------------------------------------
+
+# Maps a lesson key to ``(kind, [entity_keys])``. The Tutorial UI calls
+# :func:`lesson_examples` to render the canonical ``explain()`` blurbs so that
+# the curriculum copy never drifts from the runtime systems it teaches.
+_LESSON_EXAMPLES: Final[dict[str, tuple[str, tuple[str, ...]]]] = {
+    "L3_items": ("item", ("gc", "opt", "scan")),
+    "L4_programs": ("program", ("fork", "kill9", "sudo", "grep", "nice")),
+    "L5_daemons": ("daemon", ("cron", "tcpdump")),
+    "L6_patches": ("patch", ()),
+}
+
+
+def lesson_examples(lesson_key: str) -> tuple[tuple[str, str, str], ...]:
+    """Return ``(kind, label, blurb)`` rows for a lesson.
+
+    Resolves blurbs through :func:`kernelquest.ui.explain.explain`, guaranteeing
+    that the tutorial only references entities that currently ship in the
+    catalogs. Returns an empty tuple for lessons without inline examples.
+    """
+    from kernelquest.entities.patch import CATALOG as PATCH_CATALOG
+    from kernelquest.ui.explain import explain, label
+
+    if lesson_key not in _LESSON_EXAMPLES:
+        return ()
+    kind, keys = _LESSON_EXAMPLES[lesson_key]
+    if kind == "patch" and not keys:
+        keys = tuple(p.key for p in PATCH_CATALOG[:3])
+    rows: list[tuple[str, str, str]] = []
+    for key in keys:
+        try:
+            rows.append((kind, label(kind, key), explain(kind, key)))
+        except KeyError:
+            continue
+    return tuple(rows)
+
+
 __all__ = [
     "CURRICULUM",
     "Lesson",
@@ -285,5 +324,6 @@ __all__ = [
     "RangeRoom",
     "build_range_world",
     "lesson_by_key",
+    "lesson_examples",
     "load_range_arena",
 ]
