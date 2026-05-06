@@ -30,10 +30,21 @@ class MenuStateHandler(GameStateHandler):
         engine._handle_menu_key(event)
 
     def render(self, engine: GameEngine, ui: UIManager) -> None:
-        from kernelquest.core.engine import _MENU_OPTIONS
+        from kernelquest.core.engine import _menu_options
         from kernelquest.ui.i18n import t as _t
 
-        labels = [_t(f"menu.{key}") for key in _MENU_OPTIONS]
+        # Phase 12.5 — when the player has the Boot Map enabled, redirect any
+        # incoming MENU transition to MENU_MAP. Settings → "Classic menu" flips
+        # ``menu_layout`` back to ``"classic"`` to keep this list view.
+        if engine._settings.menu_layout == "map":
+            from kernelquest.core.state import GameState
+
+            engine._state = GameState.MENU_MAP
+            return
+
+        if engine._sfx is not None and engine._sfx.current_track != "menu":
+            engine._sfx.start_music("menu")
+        labels = [_t(f"menu.{key}") for key in _menu_options()]
         ui.render_menu(labels, engine._menu_index)
 
 
@@ -114,9 +125,9 @@ class QuitConfirmStateHandler(GameStateHandler):
 
     def render(self, engine: GameEngine, ui: UIManager) -> None:
         # Render whatever was beneath (menu) first, then the modal on top.
-        from kernelquest.core.engine import _MENU_OPTIONS
+        from kernelquest.core.engine import _menu_options
         from kernelquest.ui.i18n import t as _t
 
-        labels = [_t(f"menu.{key}") for key in _MENU_OPTIONS]
+        labels = [_t(f"menu.{key}") for key in _menu_options()]
         ui.render_menu(labels, engine._menu_index)
         ui.render_quit_confirm()
