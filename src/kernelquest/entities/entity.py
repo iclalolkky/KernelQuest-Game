@@ -10,7 +10,7 @@ class Entity:
     """An object that occupies a single tile.
 
     Subclasses add behavior (player, malware, items). Pygame is **never**
-    imported here — rendering is the renderer's job.
+    imported here - rendering is the renderer's job.
     """
 
     position: tuple[int, int]

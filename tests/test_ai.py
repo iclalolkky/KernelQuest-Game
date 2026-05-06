@@ -27,7 +27,7 @@ def test_syntax_error_attacks_player_at_range_one() -> None:
     starting_ram = world.player.ram
     msgs = run_enemy_turn(world, random.Random(0), damage_multiplier=1.0)
 
-    assert any("bit you" in m for m in msgs)
+    assert any("ısırdı" in m for m in msgs)
     assert world.player.ram < starting_ram
 
 
@@ -47,7 +47,7 @@ def test_logic_bomb_detonates_in_range() -> None:
     bomb = LogicBomb(position=(px + 1, py))
     world.enemies.append(bomb)
     msgs = run_enemy_turn(world, random.Random(0), damage_multiplier=1.0)
-    assert any("detonates" in m for m in msgs)
+    assert any("patlıyor" in m for m in msgs)
     # Bomb consumed itself.
     assert not bomb.is_alive
 
@@ -58,5 +58,5 @@ def test_kernel_panic_melee() -> None:
     world.enemies.append(KernelPanic(position=(px + 1, py)))
     starting_ram = world.player.ram
     msgs = run_enemy_turn(world, random.Random(123), damage_multiplier=1.0)
-    assert any("crushes" in m for m in msgs)
+    assert any("ezdi" in m for m in msgs)
     assert world.player.ram < starting_ram

@@ -1,6 +1,6 @@
 """Centralized constants and tunables.
 
-Keep magic numbers out of game logic — import from here instead.
+Keep magic numbers out of game logic - import from here instead.
 """
 
 from __future__ import annotations

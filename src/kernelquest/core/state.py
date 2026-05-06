@@ -15,4 +15,5 @@ class GameState(Enum):
     STATS = auto()
     SHOP = auto()
     SETTINGS = auto()
+    TUTORIAL = auto()
     QUIT = auto()

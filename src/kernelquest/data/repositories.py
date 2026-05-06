@@ -1,4 +1,4 @@
-"""Repositories — typed query helpers over `Database`."""
+"""Repositories - typed query helpers over `Database`."""
 
 from __future__ import annotations
 

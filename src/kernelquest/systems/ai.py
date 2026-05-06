@@ -1,4 +1,4 @@
-"""Enemy AI — runs after the player has spent all cycles for the turn."""
+"""Enemy AI - runs after the player has spent all cycles for the turn."""
 
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ def _act_syntax_error(
     player = world.player
     if chebyshev_distance(enemy.position, player.position) == 1:
         dmg = enemy_attack(player, enemy, damage=_scaled_damage(enemy.damage, mult))
-        return [f"{enemy.name} bit you for {dmg} RAM"]
+        return [f"{enemy.name} seni ısırdı, -{dmg} RAM"]
 
     # 25% chance to wander randomly; otherwise pathfind.
     if rng.random() < 0.25:
@@ -61,7 +61,7 @@ def _act_logic_bomb(enemy: LogicBomb, world: World, mult: float) -> list[str]:
 
 
 def _detonate(enemy: LogicBomb, world: World, mult: float) -> list[str]:
-    log: list[str] = [f"{enemy.name} detonates!"]
+    log: list[str] = [f"{enemy.name} patlıyor!"]
     cx, cy = enemy.position
     blast_dmg = _scaled_damage(enemy.damage, mult)
     for dx in range(-enemy.radius, enemy.radius + 1):
@@ -73,7 +73,7 @@ def _detonate(enemy: LogicBomb, world: World, mult: float) -> list[str]:
                 continue
             if world.player.position == (tx, ty):
                 enemy_attack(world.player, enemy, damage=blast_dmg)
-                log.append(f"You take {blast_dmg} RAM from the blast")
+                log.append(f"Patlamadan {blast_dmg} RAM hasar aldın")
             other = world.enemy_at((tx, ty))
             if other is not None and other is not enemy:
                 other.take_damage(enemy.damage)
@@ -87,7 +87,7 @@ def _act_kernel_panic(
     player = world.player
     if chebyshev_distance(enemy.position, player.position) <= 1:
         dmg = enemy_attack(player, enemy, damage=_scaled_damage(enemy.damage, mult))
-        return [f"{enemy.name} crushes you for {dmg} RAM"]
+        return [f"{enemy.name} seni ezdi, -{dmg} RAM"]
 
     if (
         enemy.is_enraged
@@ -99,7 +99,7 @@ def _act_kernel_panic(
         if dx == 0 or dy == 0:
             dmg = _scaled_damage(enemy.damage, mult)
             enemy_attack(player, enemy, damage=dmg)
-            return [f"{enemy.name} fires a kernel trap (-{dmg} RAM)"]
+            return [f"{enemy.name} kernel-tuzağı fırlattı (-{dmg} RAM)"]
     return _step_toward_player(enemy, world)
 
 

@@ -21,10 +21,10 @@ class Player(Entity):
 
     Attributes use OS-architecture metaphors:
 
-    - ``ram``         — current health.
-    - ``cpu_cycles``  — energy budget for actions this turn.
-    - ``cache``       — inventory list of collected packets.
-    - ``crash_cause`` — set when ``ram`` reaches zero.
+    - ``ram``         - current health.
+    - ``cpu_cycles``  - energy budget for actions this turn.
+    - ``cache``       - inventory list of collected packets.
+    - ``crash_cause`` - set when ``ram`` reaches zero.
     """
 
     position: tuple[int, int] = PLAYER_START_POSITION

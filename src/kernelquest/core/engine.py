@@ -58,12 +58,13 @@ log = logging.getLogger(__name__)
 _KEY_BITS = "meta.bits"
 
 _MENU_OPTIONS: tuple[str, ...] = (
-    "New Run",
-    "High Scores",
-    "Stats",
-    "Shop",
-    "Settings",
-    "Quit",
+    "Yeni RUN",
+    "Nasıl Oynanır",
+    "Yüksek Skorlar",
+    "İstatistikler",
+    "Mağaza",
+    "Ayarlar",
+    "Çıkış",
 )
 
 
@@ -107,6 +108,7 @@ class GameEngine:
         self._settings_index: int = 0
         self._shop_message: str | None = None
         self._run_meta: _RunMeta | None = None
+        self._tutorial_page: int = 0
 
     # ----- public entry point -----
 
@@ -168,6 +170,8 @@ class GameEngine:
                 self._handle_shop_key(event)
             elif self._state is GameState.SETTINGS:
                 self._handle_settings_key(event)
+            elif self._state is GameState.TUTORIAL:
+                self._handle_tutorial_key(event)
 
     def _handle_menu_key(self, event: pygame.event.Event) -> None:
         if event.key == pygame.K_ESCAPE:
@@ -182,25 +186,49 @@ class GameEngine:
 
     def _activate_menu_option(self) -> None:
         choice = _MENU_OPTIONS[self._menu_index]
-        if choice == "New Run":
+        if choice == "Yeni RUN":
             self._start_new_run()
-        elif choice == "High Scores":
+        elif choice == "Nasıl Oynanır":
+            self._tutorial_page = 0
+            self._state = GameState.TUTORIAL
+        elif choice == "Yüksek Skorlar":
             self._state = GameState.HIGH_SCORES
-        elif choice == "Stats":
+        elif choice == "İstatistikler":
             self._state = GameState.STATS
-        elif choice == "Shop":
+        elif choice == "Mağaza":
             self._shop_index = 0
             self._shop_message = None
             self._state = GameState.SHOP
-        elif choice == "Settings":
+        elif choice == "Ayarlar":
             self._settings_index = 0
             self._state = GameState.SETTINGS
-        elif choice == "Quit":
+        elif choice == "Çıkış":
             self._state = GameState.QUIT
 
     def _handle_back_key(self, event: pygame.event.Event) -> None:
         if event.key in (pygame.K_ESCAPE, pygame.K_RETURN, pygame.K_KP_ENTER):
             self._state = GameState.MENU
+
+    def _handle_tutorial_key(self, event: pygame.event.Event) -> None:
+        from kernelquest.ui.renderer import TUTORIAL_PAGE_COUNT
+
+        if event.key in (pygame.K_ESCAPE,):
+            self._state = GameState.MENU
+            return
+        if event.key in (pygame.K_LEFT, pygame.K_a, pygame.K_PAGEUP):
+            self._tutorial_page = max(0, self._tutorial_page - 1)
+        elif event.key in (
+            pygame.K_RIGHT,
+            pygame.K_d,
+            pygame.K_PAGEDOWN,
+            pygame.K_SPACE,
+            pygame.K_RETURN,
+            pygame.K_KP_ENTER,
+        ):
+            if self._tutorial_page >= TUTORIAL_PAGE_COUNT - 1:
+                self._state = GameState.MENU
+            else:
+                self._tutorial_page += 1
 
     def _handle_shop_key(self, event: pygame.event.Event) -> None:
         if event.key == pygame.K_ESCAPE:
@@ -244,7 +272,7 @@ class GameEngine:
 
         if event.key == pygame.K_ESCAPE:
             if player.crash_cause is None:
-                player.crash_cause = "Manual shutdown"
+                player.crash_cause = "Manuel kapatma"
             self._enter_game_over()
             return
 
@@ -322,6 +350,8 @@ class GameEngine:
             )
         elif self._state is GameState.SETTINGS:
             ui.render_settings(self._settings_rows(), self._settings_index)
+        elif self._state is GameState.TUTORIAL:
+            ui.render_tutorial(self._tutorial_page)
         ui.present()
 
     # ----- transitions -----
@@ -351,7 +381,9 @@ class GameEngine:
         )
         self._name_buffer = ""
         self._console.clear()
-        self._console.info(f"Process spawned in sector 0x{player.depth_reached:02X} (seed={seed})")
+        self._console.info(
+            f"Process 0x{player.depth_reached:02X} sektöründe başlatıldı (seed={seed})"
+        )
         self._particles.clear()
         self._state = GameState.PLAYING
 
@@ -411,7 +443,7 @@ class GameEngine:
         tile = self._world.grid.get(*player.position)
         if tile is TileType.BAD_SECTOR:
             player.take_damage(BAD_SECTOR_DAMAGE, source="Bad Sector")
-            self._console.warn(f"Bad Sector burned {BAD_SECTOR_DAMAGE} RAM")
+            self._console.warn(f"Bad Sector {BAD_SECTOR_DAMAGE} RAM yaktı")
             self._shake.punch(SCREEN_SHAKE_DAMAGE_INTENSITY)
         elif tile is TileType.EXIT:
             self._descend()
@@ -455,7 +487,7 @@ class GameEngine:
         player = self._world.player
         player.depth_reached += 1
         player.score += SCORE_PER_DESCENT
-        self._console.info(f"Descending to sector 0x{player.depth_reached:02X}")
+        self._console.info(f"Sektör 0x{player.depth_reached:02X}'ya iniliyor")
         self._play_sfx("descend")
         self._world = generate_world(
             player=player,
@@ -469,8 +501,8 @@ class GameEngine:
     def _enter_game_over(self) -> None:
         assert self._world is not None
         if self._world.player.crash_cause is None:
-            self._world.player.crash_cause = "Out of RAM"
-        self._console.crit(f"SYSTEM CRASH — {self._world.player.crash_cause}")
+            self._world.player.crash_cause = "RAM tükendi"
+        self._console.crit(f"SYSTEM CRASH - {self._world.player.crash_cause}")
         self._play_sfx("crash")
         self._state = GameState.GAME_OVER
 
@@ -480,7 +512,7 @@ class GameEngine:
         ):  # pragma: no cover
             return
         player = self._world.player
-        name = self._name_buffer.strip() or "anon_process"
+        name = self._name_buffer.strip() or "anonim_process"
         self._scores.insert(
             player_name=name,
             depth_reached=player.depth_reached,
@@ -548,20 +580,25 @@ class GameEngine:
         current = self._upgrades.get_level(upgrade.key)
         cost = upgrade.cost_for_next_level(current)
         if cost is None:
-            self._shop_message = f"{upgrade.label} is already maxed."
+            self._shop_message = f"{upgrade.label} azami seviyede."
             return
         bits = self._meta.get_int(_KEY_BITS, 0)
         if bits < cost:
-            self._shop_message = f"Not enough bits ({bits}/{cost})."
+            self._shop_message = f"Yeterli bits yok ({bits}/{cost})."
             return
         self._meta.set_int(_KEY_BITS, bits - cost)
         self._upgrades.set_level(upgrade.key, current + 1)
-        self._shop_message = f"Purchased {upgrade.label} L{current + 1} for {cost} bits."
+        self._shop_message = f"{upgrade.label} L{current + 1} alındı ({cost} bits)."
 
     def _settings_rows(self) -> list[tuple[str, str]]:
+        difficulty_label = {
+            "EASY": "KOLAY",
+            "NORMAL": "NORMAL",
+            "HARD": "ZOR",
+        }.get(self._settings.difficulty.value, self._settings.difficulty.value)
         return [
-            ("Volume", f"{int(round(self._settings.volume * 100))}%"),
-            ("Difficulty", self._settings.difficulty.value),
+            ("Ses", f"{int(round(self._settings.volume * 100))}%"),
+            ("Zorluk", difficulty_label),
         ]
 
     def _fetch_high_scores(self) -> list[tuple[str, int, int, str, str]]:

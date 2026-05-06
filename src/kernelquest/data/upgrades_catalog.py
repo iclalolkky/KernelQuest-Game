@@ -65,7 +65,7 @@ CATALOG: tuple[Upgrade, ...] = (
     Upgrade(
         key="ram",
         label="+RAM",
-        description="+10 max RAM per level",
+        description="Her seviyede +10 azami RAM",
         max_level=5,
         base_cost=20,
         cost_growth=15,
@@ -74,7 +74,7 @@ CATALOG: tuple[Upgrade, ...] = (
     Upgrade(
         key="cycle",
         label="+Cycle",
-        description="+1 starting CPU cycle per level",
+        description="Her seviyede +1 başlangıç CPU cycle",
         max_level=3,
         base_cost=40,
         cost_growth=30,
@@ -83,7 +83,7 @@ CATALOG: tuple[Upgrade, ...] = (
     Upgrade(
         key="scan",
         label="+Scan",
-        description="Wider permanent scan radius (+1 per level)",
+        description="Kalıcı tarama yarıçapı (her seviyede +1)",
         max_level=3,
         base_cost=30,
         cost_growth=25,
@@ -91,8 +91,8 @@ CATALOG: tuple[Upgrade, ...] = (
     ),
     Upgrade(
         key="damage",
-        label="+Damage",
-        description="+2 base damage per level",
+        label="+Hasar",
+        description="Her seviyede +2 temel hasar",
         max_level=3,
         base_cost=35,
         cost_growth=30,
@@ -101,7 +101,7 @@ CATALOG: tuple[Upgrade, ...] = (
     Upgrade(
         key="cache",
         label="+Cache",
-        description="+1 cache slot per level",
+        description="Her seviyede +1 cache yuvası",
         max_level=2,
         base_cost=50,
         cost_growth=50,

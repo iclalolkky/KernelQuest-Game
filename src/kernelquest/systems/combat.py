@@ -35,7 +35,7 @@ def player_attack(
 ) -> AttackResult:
     """Resolve a player bump-attack against `target`.
 
-    The cycle cost is the engine's responsibility — call ``player.spend_cycle()``
+    The cycle cost is the engine's responsibility - call ``player.spend_cycle()``
     before invoking this function.
     """
     target.take_damage(damage)
@@ -50,11 +50,11 @@ def player_attack(
         world.items[target.position] = loot
 
     if killed:
-        msg = f"Defeated {target.name} (+{score} score)"
+        msg = f"{target.name} yenildi (+{score} skor)"
         if loot is not None:
-            msg += f"; dropped {loot}"
+            msg += f"; {loot} düştü"
     else:
-        msg = f"Hit {target.name} for {damage} ({target.hp}/{target.max_hp})"
+        msg = f"{target.name}'e {damage} hasar ({target.hp}/{target.max_hp})"
 
     return AttackResult(
         target=target,

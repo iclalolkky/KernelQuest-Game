@@ -15,10 +15,10 @@ def pickup_item_at(world: World, position: tuple[int, int]) -> str | None:
     item_id = world.items.get(position)
     if item_id is None:
         return None
-    if not world.player.add_to_cache(item_id):
-        return f"Cache full — left {get_item(item_id).label} on the floor"
+    if not world.player.add_to_cache(world.items[position]):
+        return f"Cache dolu - {get_item(item_id).label} yerde kaldı"
     del world.items[position]
-    return f"Picked up {get_item(item_id).label}"
+    return f"{get_item(item_id).label} toplandı"
 
 
 def use_cache_slot(world: World, slot: int) -> str | None:

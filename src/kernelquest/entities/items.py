@@ -25,17 +25,17 @@ class Item:
 
 def _apply_garbage_collector(player: Player) -> str:
     player.heal(GC_HEAL_AMOUNT)
-    return f"GarbageCollector restored {GC_HEAL_AMOUNT} RAM"
+    return f"GarbageCollector {GC_HEAL_AMOUNT} RAM geri yükledi"
 
 
 def _apply_optimization(player: Player) -> str:
     player.grant_cycles(OPTIMIZATION_CYCLES)
-    return f"Optimization granted +{OPTIMIZATION_CYCLES} cycles"
+    return f"Optimization +{OPTIMIZATION_CYCLES} CPU cycle verdi"
 
 
 def _apply_scan_boost(player: Player) -> str:
     player.grant_scan_boost(SCAN_BOOST_TURNS)
-    return f"ScanBoost extended scan range for {SCAN_BOOST_TURNS} turns"
+    return f"ScanBoost tarama yarıçapını {SCAN_BOOST_TURNS} tur uzattı"
 
 
 GARBAGE_COLLECTOR: Item = Item(
