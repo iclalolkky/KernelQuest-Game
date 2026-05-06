@@ -69,6 +69,8 @@ def player_attack(
     """
     final, factor = resolve_damage(target, damage, damage_type)
     target.take_damage(final)
+    # Phase 12.4 — track damage dealt this turn for the HUD readout.
+    world.player.damage_dealt_this_turn += final
     if isinstance(target, TheLeak) and final > 0:
         target.last_damaged_turn = world.turn_counter
     # Phase 9 — DeadlockTwin healing: damaging one twin heals its partner
