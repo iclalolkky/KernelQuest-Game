@@ -217,7 +217,7 @@ def test_skip_tag_catalog_has_four_known_keys() -> None:
 
 def test_i18n_translates_known_keys_and_falls_back() -> None:
     i18n.set_language("tr")
-    assert i18n.t("menu.new_run") == "Yeni Çalıştırma"
+    assert i18n.t("menu.new_run") == "Yeni Run"
     # Unknown key returns key.
     assert i18n.t("does.not.exist") == "does.not.exist"
     i18n.set_language("en")
