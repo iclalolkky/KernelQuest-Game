@@ -102,3 +102,21 @@ class DistroSelectStateHandler(GameStateHandler):
             selected=engine._distro_index,
             daily=engine._distro_select_for_daily,
         )
+
+
+class QuitConfirmStateHandler(GameStateHandler):
+    """Modal overlay asking the player to confirm exit."""
+
+    name = "QUIT_CONFIRM"
+
+    def handle_event(self, engine: GameEngine, event: pygame.event.Event) -> None:
+        engine._handle_quit_confirm_key(event)
+
+    def render(self, engine: GameEngine, ui: UIManager) -> None:
+        # Render whatever was beneath (menu) first, then the modal on top.
+        from kernelquest.core.engine import _MENU_OPTIONS
+        from kernelquest.ui.i18n import t as _t
+
+        labels = [_t(f"menu.{key}") for key in _MENU_OPTIONS]
+        ui.render_menu(labels, engine._menu_index)
+        ui.render_quit_confirm()

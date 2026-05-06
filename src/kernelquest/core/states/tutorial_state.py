@@ -23,12 +23,7 @@ class TutorialStateHandler(GameStateHandler):
         engine._handle_tutorial_key(event)
 
     def render(self, engine: GameEngine, ui: UIManager) -> None:
-        steps = engine._TUTORIAL_STEPS
-        ui.render_tutorial(
-            steps[min(engine._tutorial_step, len(steps) - 1)],
-            engine._tutorial_step + 1,
-            len(steps),
-        )
+        ui.render_tutorial(engine._tutorial_step)
         if engine._settings.crt_effect:
             ui.render_scanlines()
 

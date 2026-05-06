@@ -27,6 +27,7 @@ from kernelquest.core.states.menu_states import (
     HighScoresStateHandler,
     HowToPlayStateHandler,
     MenuStateHandler,
+    QuitConfirmStateHandler,
     SettingsStateHandler,
     StatsStateHandler,
 )
@@ -97,6 +98,7 @@ def test_handlers_are_game_state_handler_subclasses() -> None:
         (GameState.CODEX, CodexStateHandler),
         (GameState.GAME_OVER, GameOverStateHandler),
         (GameState.RUN_SUMMARY, RunSummaryStateHandler),
+        (GameState.QUIT_CONFIRM, QuitConfirmStateHandler),
     ],
 )
 def test_state_to_handler_mapping(state: GameState, handler_cls: type[GameStateHandler]) -> None:
@@ -156,6 +158,7 @@ def test_base_handler_default_hooks_are_noops() -> None:
         (CodexStateHandler, "_handle_codex_key"),
         (GameOverStateHandler, "_handle_game_over_key"),
         (RunSummaryStateHandler, "_handle_run_summary_key"),
+        (QuitConfirmStateHandler, "_handle_quit_confirm_key"),
     ],
 )
 def test_handle_event_delegates_to_engine(
@@ -226,6 +229,26 @@ def test_game_over_render_skips_when_world_is_none() -> None:
     ui = MagicMock(name="ui")
     handler.render(engine, ui)
     assert not ui.render_game_over.called
+
+
+def test_tutorial_state_render_invokes_render_tutorial() -> None:
+    handler = TutorialStateHandler()
+    engine = MagicMock(name="engine")
+    engine._tutorial_step = 0
+    engine._settings.crt_effect = False
+    ui = MagicMock(name="ui")
+    handler.render(engine, ui)
+    ui.render_tutorial.assert_called_once_with(0)
+
+
+def test_quit_confirm_state_render_overlays_menu_and_modal() -> None:
+    handler = QuitConfirmStateHandler()
+    engine = MagicMock(name="engine")
+    engine._menu_index = 0
+    ui = MagicMock(name="ui")
+    handler.render(engine, ui)
+    assert ui.render_menu.called
+    assert ui.render_quit_confirm.called
 
 
 # ---------------------------------------------------------------------------

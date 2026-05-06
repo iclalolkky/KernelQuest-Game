@@ -340,7 +340,7 @@ class GameEngine:
             self._sfx.set_music_volume(self._settings.music_volume)
             self._sfx.set_sfx_volume(self._settings.sfx_volume)
             self._sfx.set_muted(self._settings.muted)
-            self._sfx.start_music("main")
+            self._sfx.start_music("safe")
             clock = pygame.time.Clock()
 
             # Apply persisted player palette to the renderer.
@@ -428,7 +428,7 @@ class GameEngine:
 
     def _handle_menu_key(self, event: pygame.event.Event) -> None:
         if event.key == pygame.K_ESCAPE:
-            self._state = GameState.QUIT
+            self._state = GameState.QUIT_CONFIRM
             return
         if event.key in (pygame.K_UP, pygame.K_w):
             self._menu_index = (self._menu_index - 1) % len(_MENU_OPTIONS)
@@ -446,7 +446,7 @@ class GameEngine:
         elif choice == "training":
             self._start_tutorial_range()
         elif choice == "howtoplay":
-            self._open_howtoplay()
+            self._start_tutorial()
         elif choice == "codex":
             self._open_codex()
         elif choice == "high_scores":
@@ -463,10 +463,16 @@ class GameEngine:
             self._settings_index = 0
             self._state = GameState.SETTINGS
         elif choice == "quit":
-            self._state = GameState.QUIT
+            self._state = GameState.QUIT_CONFIRM
 
     def _handle_back_key(self, event: pygame.event.Event) -> None:
         if event.key in (pygame.K_ESCAPE, pygame.K_RETURN, pygame.K_KP_ENTER):
+            self._state = GameState.MENU
+
+    def _handle_quit_confirm_key(self, event: pygame.event.Event) -> None:
+        if event.key in (pygame.K_y, pygame.K_RETURN, pygame.K_KP_ENTER):
+            self._state = GameState.QUIT
+        elif event.key in (pygame.K_n, pygame.K_ESCAPE):
             self._state = GameState.MENU
 
     def _handle_shop_key(self, event: pygame.event.Event) -> None:
@@ -1473,40 +1479,39 @@ class GameEngine:
 
     # ----- tutorial / how-to-play -----
 
-    _TUTORIAL_STEPS: tuple[str, ...] = (
-        "Welcome to Kernel Quest. Use ARROW KEYS or WASD to move.",
-        "Walk into a Malware tile to ATTACK it. Each move costs 1 CPU cycle.",
-        "Pick up GC items to recover RAM. SCAN+ items reveal more of the map.",
-        "Press [Q/E/R] to fire programs from your loadout.",
-        "Reach the magenta EXIT to descend deeper. Some sectors lock the EXIT until the BOSS dies.",
-        "Press [SPACE] to wait, [ESC] anytime to leave the run, [F11] toggles fullscreen.",
-        "That's it! Press ENTER to finish the tutorial.",
-    )
-
     def _start_tutorial(self) -> None:
-        self._is_tutorial_run = True
         self._tutorial_step = 0
         self._console.clear()
-        self._console.info("TUTORIAL — read the on-screen prompts and press ENTER to advance.")
         self._state = GameState.TUTORIAL
         if self._sfx is not None:
             self._sfx.start_music("tutorial")
 
     def _handle_tutorial_key(self, event: pygame.event.Event) -> None:
-        if event.key in (pygame.K_ESCAPE,):
+        from kernelquest.ui.renderer import TUTORIAL_PAGE_COUNT
+
+        if event.key == pygame.K_ESCAPE:
             self._end_tutorial()
             return
-        if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
-            self._tutorial_step += 1
-            if self._tutorial_step >= len(self._TUTORIAL_STEPS):
+        if event.key in (pygame.K_LEFT, pygame.K_a, pygame.K_PAGEUP):
+            self._tutorial_step = max(0, self._tutorial_step - 1)
+        elif event.key in (
+            pygame.K_RIGHT,
+            pygame.K_d,
+            pygame.K_PAGEDOWN,
+            pygame.K_SPACE,
+            pygame.K_RETURN,
+            pygame.K_KP_ENTER,
+        ):
+            if self._tutorial_step >= TUTORIAL_PAGE_COUNT - 1:
                 self._end_tutorial()
+            else:
+                self._tutorial_step += 1
 
     def _end_tutorial(self) -> None:
         if self._meta is not None:
             settings_module.mark_tutorial_done(self._meta)
-        self._is_tutorial_run = False
         if self._sfx is not None:
-            self._sfx.start_music("main")
+            self._sfx.start_music("safe")
         self._state = GameState.MENU
 
     # ----- Phase 10: Tutorial Range -----

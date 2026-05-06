@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import random
-from typing import cast
+from typing import Final, cast
 
 import pygame
 
@@ -17,7 +17,7 @@ from kernelquest.core.config import (
     WINDOW_WIDTH,
 )
 from kernelquest.entities.items import get_item
-from kernelquest.entities.malware import Malware
+from kernelquest.entities.malware import KernelPanic, LogicBomb, Malware, SyntaxError_
 from kernelquest.entities.player import Player
 from kernelquest.ui import theme
 from kernelquest.ui.cinematics import CinematicPlayer, render_cinematic
@@ -40,6 +40,14 @@ _TILE_COLOR_KEYS: dict[TileType, str] = {
     TileType.SYSTEM_DATA: "TILE_SYSTEM_DATA",
     TileType.BAD_SECTOR: "TILE_BAD_SECTOR",
     TileType.EXIT: "TILE_EXIT",
+}
+
+# Direct color lookup used by tutorial helpers.
+_TILE_COLORS: dict[TileType, tuple[int, int, int]] = {
+    TileType.EMPTY: theme.TILE_EMPTY,
+    TileType.SYSTEM_DATA: theme.TILE_SYSTEM_DATA,
+    TileType.BAD_SECTOR: theme.TILE_BAD_SECTOR,
+    TileType.EXIT: theme.TILE_EXIT,
 }
 
 _ITEM_COLOR_KEYS: dict[str, str] = {
@@ -69,6 +77,21 @@ def _level_color(level: LogLevel) -> tuple[int, int, int]:
     if level is LogLevel.ERROR:
         return (255, 110, 110)
     return getattr(theme, _LEVEL_COLOR_KEYS.get(level, "TEXT_PRIMARY"))  # type: ignore[no-any-return]
+
+
+# ---- Tutorial page titles (i18n keys used for structural chrome) ----------
+
+_TUTORIAL_PAGE_TITLE_KEYS: Final[tuple[str, ...]] = (
+    "tutorial.page1_title",
+    "tutorial.page2_title",
+    "tutorial.page3_title",
+    "tutorial.page4_title",
+    "tutorial.page5_title",
+    "tutorial.page6_title",
+    "tutorial.page7_title",
+)
+
+TUTORIAL_PAGE_COUNT: Final[int] = len(_TUTORIAL_PAGE_TITLE_KEYS)
 
 
 _CONSOLE_HEIGHT = 120
@@ -825,35 +848,560 @@ class UIManager:
         hint = self.font_small.render("Press [?] to dismiss.", True, theme.TEXT_DIM)
         self.screen.blit(hint, hint.get_rect(center=(cx, WINDOW_HEIGHT - 50)))
 
-    def render_tutorial(self, message: str, step: int, total: int) -> None:
-        self.clear()
+    def render_quit_confirm(self) -> None:
+        """Modal overlay asking the player to confirm exit."""
+        from kernelquest.ui.i18n import t
+
+        overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 180))
+        self.screen.blit(overlay, (0, 0))
+
         cx = WINDOW_WIDTH // 2
         cy = WINDOW_HEIGHT // 2
-        title = self.font_title.render("TUTORIAL", True, theme.NEON_CYAN)
-        self.screen.blit(title, title.get_rect(center=(cx, 100)))
-        progress = self.font_small.render(f"Step {step}/{total}", True, theme.TEXT_DIM)
-        self.screen.blit(progress, progress.get_rect(center=(cx, 140)))
+        box_w, box_h = 560, 200
+        box = pygame.Rect(cx - box_w // 2, cy - box_h // 2, box_w, box_h)
+        glass = pygame.Surface(box.size, pygame.SRCALPHA)
+        glass.fill((*theme.PANEL_BG, 235))
+        self.screen.blit(glass, box.topleft)
+        pygame.draw.rect(self.screen, theme.NEON_MAGENTA, box, width=2, border_radius=10)
 
-        # Word-wrap the body text.
-        words = message.split(" ")
-        lines: list[str] = []
-        current = ""
-        for w in words:
-            candidate = (current + " " + w).strip() if current else w
-            if self.font_body.size(candidate)[0] < WINDOW_WIDTH - 200:
-                current = candidate
+        title = self.font_body.render(t("quit_confirm.title"), True, theme.NEON_MAGENTA)
+        self.screen.blit(title, title.get_rect(center=(cx, box.y + 36)))
+        msg = self.font_body.render(t("quit_confirm.message"), True, theme.TEXT_PRIMARY)
+        self.screen.blit(msg, msg.get_rect(center=(cx, box.y + 84)))
+        hint = self.font_small.render(t("quit_confirm.hint"), True, theme.TEXT_DIM)
+        self.screen.blit(hint, hint.get_rect(center=(cx, box.y + box_h - 36)))
+
+    def render_tutorial(self, page: int) -> None:
+        """Render a single tutorial page (0-indexed) with actual in-game iconography.
+
+        Each of the 7 pages draws real sprites, tile colors, item glyphs and a
+        mock HUD so a brand-new player can recognise them at a glance once the
+        run starts.
+        """
+        from kernelquest.ui.i18n import t
+
+        self.clear()
+        cx = WINDOW_WIDTH // 2
+        page = max(0, min(TUTORIAL_PAGE_COUNT - 1, page))
+
+        title_surf = self.font_title.render(t("tutorial.title"), True, theme.NEON_CYAN)
+        self.screen.blit(title_surf, title_surf.get_rect(center=(cx, 50)))
+        section = self.font_body.render(t(_TUTORIAL_PAGE_TITLE_KEYS[page]), True, theme.NEON_AMBER)
+        self.screen.blit(section, section.get_rect(center=(cx, 100)))
+
+        body_top = 140
+        renderers = (
+            self._tutorial_overview,
+            self._tutorial_character,
+            self._tutorial_enemies,
+            self._tutorial_map,
+            self._tutorial_items,
+            self._tutorial_score_meta,
+            self._tutorial_controls,
+        )
+        renderers[page](body_top)
+
+        page_label = self.font_small.render(
+            t("tutorial.page_label", page=page + 1, total=TUTORIAL_PAGE_COUNT),
+            True,
+            theme.TEXT_DIM,
+        )
+        self.screen.blit(page_label, page_label.get_rect(center=(cx, WINDOW_HEIGHT - 64)))
+
+        hint = self.font_small.render(t("tutorial.hint"), True, theme.TEXT_DIM)
+        self.screen.blit(hint, hint.get_rect(center=(cx, WINDOW_HEIGHT - 40)))
+
+    # ----- tutorial page helpers -----
+
+    def _tutorial_overview(self, top: int) -> None:
+        """Mock HUD with callouts: RAM, CYCLES, DAMAGE, SCORE, CACHE, MINIMAP."""
+        cx = WINDOW_WIDTH // 2
+        from kernelquest.ui.i18n import t
+
+        intro = t("tutorial.overview.intro")
+        self._blit_text(intro, (cx - 460, top), theme.TEXT_PRIMARY, self.font_body)
+        self._blit_text(
+            t("tutorial.overview.sub"),
+            (cx - 460, top + 24),
+            theme.TEXT_DIM,
+            self.font_body,
+        )
+
+        # Mock HUD panel.
+        panel_w = 280
+        panel_h = 360
+        panel_x = cx - 460
+        panel_y = top + 70
+        panel_rect = pygame.Rect(panel_x, panel_y, panel_w, panel_h)
+        glass = pygame.Surface(panel_rect.size, pygame.SRCALPHA)
+        glass.fill((*theme.PANEL_BG, 215))
+        self.screen.blit(glass, panel_rect.topleft)
+        pygame.draw.rect(self.screen, theme.NEON_CYAN, panel_rect, width=1, border_radius=8)
+
+        x = panel_x + 16
+        y = panel_y + 16
+        self._blit_text("KERNEL QUEST", (x, y), theme.NEON_CYAN, self.font_body)
+        y += 26
+        self._blit_text(
+            t("tutorial.overview.sector_ex"), (x, y), theme.TEXT_PRIMARY, self.font_body
+        )
+        y += 22
+        self._blit_text(
+            t("tutorial.overview.process_ex"), (x, y), theme.TEXT_PRIMARY, self.font_body
+        )
+        y += 28
+        ram_y = y
+        self._blit_text("RAM     : 75/100", (x, y), theme.NEON_GREEN, self.font_body)
+        y += 22
+        self._render_bar((x, y), 232, 10, 0.75, theme.NEON_GREEN)
+        y += 22
+        cycles_y = y
+        self._blit_text("CYCLES  : 4/5", (x, y), theme.NEON_AMBER, self.font_body)
+        y += 22
+        wave_rect = pygame.Rect(x, y, HUD_CPU_WAVE_WIDTH, HUD_CPU_WAVE_HEIGHT)
+        pygame.draw.rect(self.screen, theme.PANEL_BG, wave_rect, border_radius=3)
+        pygame.draw.rect(self.screen, theme.GRID_LINE, wave_rect, width=1, border_radius=3)
+        mid = wave_rect.y + HUD_CPU_WAVE_HEIGHT // 2
+        prev_pt: tuple[int, int] | None = None
+        for px in range(wave_rect.width):
+            theta = px * 0.22
+            py = mid + int((HUD_CPU_WAVE_HEIGHT / 2 - 4) * 0.8 * math.sin(theta))
+            point = (wave_rect.x + px, py)
+            if prev_pt is not None:
+                pygame.draw.line(self.screen, theme.NEON_AMBER, prev_pt, point, 1)
+            prev_pt = point
+        y += HUD_CPU_WAVE_HEIGHT + 6
+        damage_y = y
+        self._blit_text(
+            t("tutorial.overview.damage_ex"), (x, y), theme.NEON_MAGENTA, self.font_body
+        )
+        y += 22
+        score_y = y
+        self._blit_text(t("tutorial.overview.score_ex"), (x, y), theme.TEXT_PRIMARY, self.font_body)
+        y += 24
+        cache_y = y
+        self._blit_text(t("tutorial.overview.cache_ex"), (x, y), theme.TEXT_PRIMARY, self.font_body)
+        y += 22
+        for i in range(8):
+            slot_rect = pygame.Rect(x + i * 28, y, 24, 24)
+            if i == 0:
+                pygame.draw.rect(self.screen, theme.ITEM_GC, slot_rect, border_radius=4)
+                lab = self.font_small.render("G", True, theme.BACKGROUND)
+                self.screen.blit(lab, lab.get_rect(center=slot_rect.center))
+            elif i == 1:
+                pygame.draw.rect(self.screen, theme.ITEM_OPTIMIZATION, slot_rect, border_radius=4)
+                lab = self.font_small.render("O", True, theme.BACKGROUND)
+                self.screen.blit(lab, lab.get_rect(center=slot_rect.center))
             else:
-                lines.append(current)
-                current = w
-        if current:
-            lines.append(current)
-        y = cy - len(lines) * 14
-        for ln in lines:
-            surf = self.font_body.render(ln, True, theme.TEXT_PRIMARY)
-            self.screen.blit(surf, surf.get_rect(center=(cx, y)))
-            y += 28
-        hint = self.font_small.render("[enter] next   [esc] skip", True, theme.NEON_AMBER)
-        self.screen.blit(hint, hint.get_rect(center=(cx, WINDOW_HEIGHT - 60)))
+                pygame.draw.rect(self.screen, theme.PANEL_BG, slot_rect, border_radius=4)
+                pygame.draw.rect(self.screen, theme.GRID_LINE, slot_rect, width=1, border_radius=4)
+            num = self.font_small.render(f"{i + 1}", True, theme.TEXT_DIM)
+            self.screen.blit(num, (slot_rect.x, slot_rect.bottom + 2))
+
+        callouts = [
+            (ram_y + 10, t("tutorial.overview.callout_ram"), theme.NEON_GREEN),
+            (cycles_y + 10, t("tutorial.overview.callout_cycles"), theme.NEON_AMBER),
+            (damage_y + 10, t("tutorial.overview.callout_damage"), theme.NEON_MAGENTA),
+            (score_y + 10, t("tutorial.overview.callout_score"), theme.TEXT_PRIMARY),
+            (cache_y + 26, t("tutorial.overview.callout_cache"), theme.NEON_CYAN),
+        ]
+        text_x = panel_x + panel_w + 40
+        line_start_x = panel_x + panel_w + 4
+        for cy_, text, color in callouts:
+            pygame.draw.line(self.screen, color, (line_start_x, cy_), (text_x - 10, cy_), 1)
+            self._blit_text(text, (text_x, cy_ - 10), color, self.font_body)
+
+        note_y = panel_y + panel_h + 16
+        self._blit_text(
+            t("tutorial.overview.note_minimap"), (panel_x, note_y), theme.TEXT_DIM, self.font_body
+        )
+        self._blit_text(
+            t("tutorial.overview.note_console"),
+            (panel_x, note_y + 22),
+            theme.TEXT_DIM,
+            self.font_body,
+        )
+
+    def _tutorial_character(self, top: int) -> None:
+        """Player avatar + RAM/CYCLES bars with explanations."""
+        from kernelquest.ui.i18n import t
+
+        cx = WINDOW_WIDTH // 2
+        cell = 64
+        ox = cx - 380
+        oy = top + 20
+        cell_rect = pygame.Rect(ox, oy, cell, cell)
+        pygame.draw.rect(self.screen, theme.TILE_SYSTEM_DATA, cell_rect)
+        pygame.draw.rect(self.screen, theme.GRID_LINE, cell_rect, 1)
+        center = (ox + cell // 2, oy + cell // 2)
+        radius = cell // 2 - 6
+        pygame.draw.circle(self.screen, theme.PLAYER_COLOR, center, radius)
+        pygame.draw.circle(self.screen, theme.NEON_CYAN, center, radius, 2)
+        self._blit_text(
+            t("tutorial.character.avatar_label"),
+            (ox, oy + cell + 8),
+            theme.NEON_GREEN,
+            self.font_body,
+        )
+        self._blit_text(
+            t("tutorial.character.avatar_sub"),
+            (ox, oy + cell + 32),
+            theme.TEXT_DIM,
+            self.font_small,
+        )
+
+        text_x = ox + 200
+        ty = oy
+        line_h = self.font_body.get_height() + 6
+        stat_rows: tuple[tuple[tuple[int, int, int], str], ...] = (
+            (theme.NEON_GREEN, t("tutorial.character.ram1")),
+            (theme.TEXT_PRIMARY, t("tutorial.character.ram2")),
+            (theme.NEON_AMBER, t("tutorial.character.cycles1")),
+            (theme.TEXT_PRIMARY, t("tutorial.character.cycles2")),
+            (theme.TEXT_PRIMARY, t("tutorial.character.cycles3")),
+            (theme.NEON_CYAN, t("tutorial.character.cache1")),
+            (theme.TEXT_PRIMARY, t("tutorial.character.cache2")),
+            (theme.NEON_MAGENTA, t("tutorial.character.damage1")),
+        )
+        for color, text in stat_rows:
+            self._blit_text(text, (text_x, ty), color, self.font_body)
+            ty += line_h
+
+        demo_y = max(ty + 24, oy + cell + 64)
+        self._blit_text(
+            t("tutorial.character.bar_label"), (ox, demo_y), theme.TEXT_PRIMARY, self.font_body
+        )
+        demo_y += 24
+        for ratio, color, label_key in (
+            (0.9, theme.NEON_GREEN, "tutorial.character.bar_high"),
+            (0.4, theme.NEON_AMBER, "tutorial.character.bar_mid"),
+            (0.15, (255, 110, 110), "tutorial.character.bar_low"),
+        ):
+            self._render_bar((ox, demo_y), 232, 12, ratio, color)
+            self._blit_text(t(label_key), (ox + 244, demo_y - 2), color, self.font_body)
+            demo_y += 22
+
+        self._blit_text(
+            t("tutorial.character.bar_tip"), (ox, demo_y + 8), theme.NEON_AMBER, self.font_body
+        )
+
+    def _tutorial_enemies(self, top: int) -> None:
+        """Three rows: real enemy sprite + name + behaviour description."""
+        from kernelquest.ui.i18n import t
+
+        cx = WINDOW_WIDTH // 2
+        cell = 64
+        ox = cx - 460
+        enemy_rows: tuple[tuple[type[Malware], int, int, str, str, str], ...] = (
+            (
+                SyntaxError_,
+                8,
+                8,
+                "tutorial.enemy.syntax_name",
+                "tutorial.enemy.syntax_header",
+                "tutorial.enemy.syntax_desc",
+            ),
+            (
+                LogicBomb,
+                12,
+                10,
+                "tutorial.enemy.logic_name",
+                "tutorial.enemy.logic_header",
+                "tutorial.enemy.logic_desc",
+            ),
+            (
+                KernelPanic,
+                60,
+                42,
+                "tutorial.enemy.kernel_name",
+                "tutorial.enemy.kernel_header",
+                "tutorial.enemy.kernel_desc",
+            ),
+        )
+
+        y = top + 10
+        line_h = self.font_body.get_height() + 4
+        for cls, max_hp, current_hp, name_key, header_key, desc_key in enemy_rows:
+            self._tutorial_draw_enemy(cls, max_hp, current_hp, ox, y, cell)
+            color_map: dict[type[Malware], tuple[int, int, int]] = {
+                SyntaxError_: theme.ENEMY_SYNTAX_ERROR,
+                LogicBomb: theme.ENEMY_LOGIC_BOMB,
+                KernelPanic: theme.ENEMY_KERNEL_PANIC,
+            }
+            name_color = color_map[cls]
+            tx = ox + cell + 24
+            self._blit_text(t(name_key), (tx, y), name_color, self.font_body)
+            self._blit_text(t(header_key), (tx, y + 22), theme.TEXT_DIM, self.font_small)
+            for i, line in enumerate(t(desc_key).split("\n")):
+                self._blit_text(line, (tx, y + 44 + i * line_h), theme.TEXT_PRIMARY, self.font_body)
+            y += cell + 60
+
+        self._blit_text(t("tutorial.enemy.tip"), (ox, y + 8), theme.NEON_CYAN, self.font_body)
+
+    def _tutorial_draw_enemy(
+        self, cls: type[Malware], max_hp: int, hp: int, ox: int, oy: int, cell: int
+    ) -> None:
+        """Render a single enemy preview (matches in-game ``_render_enemy``)."""
+        color_map: dict[type[Malware], tuple[int, int, int]] = {
+            SyntaxError_: theme.ENEMY_SYNTAX_ERROR,
+            LogicBomb: theme.ENEMY_LOGIC_BOMB,
+            KernelPanic: theme.ENEMY_KERNEL_PANIC,
+        }
+        color = color_map.get(cls, theme.NEON_AMBER)
+        bg = pygame.Rect(ox, oy, cell, cell)
+        pygame.draw.rect(self.screen, theme.TILE_SYSTEM_DATA, bg)
+        pygame.draw.rect(self.screen, theme.GRID_LINE, bg, 1)
+        rect = pygame.Rect(ox + 8, oy + 8, cell - 16, cell - 16)
+        pygame.draw.rect(self.screen, color, rect, border_radius=6)
+        pygame.draw.rect(self.screen, theme.BACKGROUND, rect, width=1, border_radius=6)
+
+        pip_count = max(1, min(8, max_hp // 4))
+        pip_w = (cell - 16) // pip_count
+        filled = int(round(pip_count * (hp / max(1, max_hp))))
+        for i in range(pip_count):
+            pip_color = color if i < filled else theme.PANEL_BG
+            pip_rect = pygame.Rect(ox + 8 + i * pip_w, oy + 4, max(2, pip_w - 1), 4)
+            pygame.draw.rect(self.screen, pip_color, pip_rect)
+
+        hp_text = f"{hp}/{max_hp}"
+        hp_surface = self.font_small.render(hp_text, True, theme.TEXT_PRIMARY)
+        shadow = self.font_small.render(hp_text, True, theme.BACKGROUND)
+        hp_rect = hp_surface.get_rect(center=(ox + cell // 2, oy + cell // 2))
+        self.screen.blit(shadow, hp_rect.move(1, 1))
+        self.screen.blit(hp_surface, hp_rect)
+
+    def _tutorial_map(self, top: int) -> None:
+        """Real tile palette + walkability rules + player-on-tile demo."""
+        from kernelquest.ui.i18n import t
+
+        cx = WINDOW_WIDTH // 2
+        cell = 56
+        ox = cx - 460
+        tile_rows: tuple[tuple[TileType, str, str, tuple[int, int, int]], ...] = (
+            (
+                TileType.SYSTEM_DATA,
+                "tutorial.map.system_data_name",
+                "tutorial.map.system_data_desc",
+                theme.NEON_GREEN,
+            ),
+            (TileType.EMPTY, "tutorial.map.empty_name", "tutorial.map.empty_desc", theme.TEXT_DIM),
+            (
+                TileType.BAD_SECTOR,
+                "tutorial.map.bad_sector_name",
+                "tutorial.map.bad_sector_desc",
+                (255, 110, 110),
+            ),
+            (TileType.EXIT, "tutorial.map.exit_name", "tutorial.map.exit_desc", theme.NEON_MAGENTA),
+        )
+        y = top + 10
+        for tile, name_key, desc_key, name_color in tile_rows:
+            tile_rect = pygame.Rect(ox, y, cell, cell)
+            pygame.draw.rect(self.screen, _TILE_COLORS[tile], tile_rect)
+            pygame.draw.rect(self.screen, theme.GRID_LINE, tile_rect, 1)
+            tx = ox + cell + 24
+            self._blit_text(t(name_key), (tx, y + 4), name_color, self.font_body)
+            self._blit_text(t(desc_key), (tx, y + 28), theme.TEXT_PRIMARY, self.font_body)
+            y += cell + 16
+
+        demo_x = ox
+        demo_y = y + 10
+        self._blit_text(
+            t("tutorial.map.demo_label"), (demo_x, demo_y), theme.NEON_AMBER, self.font_body
+        )
+        demo_y += 28
+        for i, tile in enumerate(
+            (TileType.SYSTEM_DATA, TileType.SYSTEM_DATA, TileType.EXIT, TileType.SYSTEM_DATA)
+        ):
+            r = pygame.Rect(demo_x + i * (cell + 4), demo_y, cell, cell)
+            pygame.draw.rect(self.screen, _TILE_COLORS[tile], r)
+            pygame.draw.rect(self.screen, theme.GRID_LINE, r, 1)
+            if i == 2:
+                pygame.draw.circle(self.screen, theme.PLAYER_COLOR, r.center, cell // 2 - 8)
+                pygame.draw.circle(self.screen, theme.NEON_CYAN, r.center, cell // 2 - 8, 2)
+
+        note_y = demo_y + cell + 16
+        self._blit_text(t("tutorial.map.fov_note1"), (ox, note_y), theme.TEXT_DIM, self.font_body)
+        self._blit_text(
+            t("tutorial.map.fov_note2"), (ox, note_y + 22), theme.TEXT_DIM, self.font_body
+        )
+
+    def _tutorial_items(self, top: int) -> None:
+        """Item glyphs as drawn on the floor + cache strip + usage explanation."""
+        from kernelquest.ui.i18n import t
+
+        cx = WINDOW_WIDTH // 2
+        ox = cx - 460
+        cell = 56
+
+        item_rows: tuple[tuple[str, str, str, str, tuple[int, int, int]], ...] = (
+            ("gc", "G", "tutorial.items.gc_name", "tutorial.items.gc_desc", theme.ITEM_GC),
+            (
+                "opt",
+                "O",
+                "tutorial.items.opt_name",
+                "tutorial.items.opt_desc",
+                theme.ITEM_OPTIMIZATION,
+            ),
+            (
+                "scan",
+                "S",
+                "tutorial.items.scan_name",
+                "tutorial.items.scan_desc",
+                theme.ITEM_SCAN_BOOST,
+            ),
+        )
+        y = top + 10
+        for _id, glyph, name_key, desc_key, color in item_rows:
+            tile_rect = pygame.Rect(ox, y, cell, cell)
+            pygame.draw.rect(self.screen, theme.TILE_SYSTEM_DATA, tile_rect)
+            pygame.draw.rect(self.screen, theme.GRID_LINE, tile_rect, 1)
+            pygame.draw.circle(self.screen, color, tile_rect.center, cell // 4)
+            label_surf = self.font_small.render(glyph, True, theme.BACKGROUND)
+            self.screen.blit(label_surf, label_surf.get_rect(center=tile_rect.center))
+            tx = ox + cell + 24
+            self._blit_text(t(name_key), (tx, y + 4), color, self.font_body)
+            self._blit_text(t(desc_key), (tx, y + 28), theme.TEXT_PRIMARY, self.font_body)
+            y += cell + 12
+
+        strip_y = y + 16
+        self._blit_text(
+            t("tutorial.items.cache_strip_label"), (ox, strip_y), theme.NEON_CYAN, self.font_body
+        )
+        strip_y += 28
+        slot = 36
+        for i in range(8):
+            r = pygame.Rect(ox + i * (slot + 6), strip_y, slot, slot)
+            if i == 0:
+                pygame.draw.rect(self.screen, theme.ITEM_GC, r, border_radius=6)
+                lab = self.font_small.render("G", True, theme.BACKGROUND)
+                self.screen.blit(lab, lab.get_rect(center=r.center))
+            elif i == 1:
+                pygame.draw.rect(self.screen, theme.ITEM_OPTIMIZATION, r, border_radius=6)
+                lab = self.font_small.render("O", True, theme.BACKGROUND)
+                self.screen.blit(lab, lab.get_rect(center=r.center))
+            elif i == 2:
+                pygame.draw.rect(self.screen, theme.ITEM_SCAN_BOOST, r, border_radius=6)
+                lab = self.font_small.render("S", True, theme.BACKGROUND)
+                self.screen.blit(lab, lab.get_rect(center=r.center))
+            else:
+                pygame.draw.rect(self.screen, theme.PANEL_BG, r, border_radius=6)
+                pygame.draw.rect(self.screen, theme.GRID_LINE, r, width=1, border_radius=6)
+            num = self.font_small.render(f"{i + 1}", True, theme.TEXT_DIM)
+            self.screen.blit(num, (r.x, r.bottom + 2))
+
+        notes_y = strip_y + slot + 28
+        self._blit_text(
+            t("tutorial.items.note1"), (ox, notes_y), theme.TEXT_PRIMARY, self.font_body
+        )
+        self._blit_text(
+            t("tutorial.items.note2"), (ox, notes_y + 22), theme.TEXT_PRIMARY, self.font_body
+        )
+        self._blit_text(
+            t("tutorial.items.note3"), (ox, notes_y + 44), theme.TEXT_DIM, self.font_body
+        )
+
+    def _tutorial_score_meta(self, top: int) -> None:
+        """Score table + bits formula + shop list."""
+        from kernelquest.ui.i18n import t
+
+        cx = WINDOW_WIDTH // 2
+        ox = cx - 460
+        line_h = self.font_body.get_height() + 6
+
+        self._blit_text(
+            t("tutorial.score.section_title"), (ox, top), theme.NEON_AMBER, self.font_body
+        )
+        score_rows = (
+            "tutorial.score.move",
+            "tutorial.score.syntax",
+            "tutorial.score.logic",
+            "tutorial.score.kernel",
+            "tutorial.score.descend",
+        )
+        y = top + 30
+        for key in score_rows:
+            self._blit_text(t(key), (ox, y), theme.TEXT_PRIMARY, self.font_body)
+            y += line_h
+        y += 8
+        self._blit_text(t("tutorial.score.persist_note"), (ox, y), theme.NEON_CYAN, self.font_body)
+
+        meta_y = y + line_h * 2
+        self._blit_text(
+            t("tutorial.meta.section_title"), (ox, meta_y), theme.NEON_GREEN, self.font_body
+        )
+        meta_y += 28
+        self._blit_text(
+            t("tutorial.meta.bits_intro"), (ox, meta_y), theme.TEXT_PRIMARY, self.font_body
+        )
+        meta_y += line_h
+        self._blit_text(
+            t("tutorial.meta.bits_formula"), (ox, meta_y), theme.NEON_AMBER, self.font_body
+        )
+        meta_y += line_h + 4
+        self._blit_text(
+            t("tutorial.meta.shop_intro"), (ox, meta_y), theme.TEXT_PRIMARY, self.font_body
+        )
+        meta_y += line_h
+        upgrade_rows = (
+            ("tutorial.meta.upgrade_ram", theme.NEON_GREEN),
+            ("tutorial.meta.upgrade_cycle", theme.NEON_AMBER),
+            ("tutorial.meta.upgrade_scan", theme.ITEM_SCAN_BOOST),
+            ("tutorial.meta.upgrade_damage", theme.NEON_MAGENTA),
+            ("tutorial.meta.upgrade_cache", theme.NEON_CYAN),
+        )
+        for key, color in upgrade_rows:
+            self._blit_text(t(key), (ox, meta_y), color, self.font_body)
+            meta_y += line_h
+        self._blit_text(
+            t("tutorial.meta.persist_note"), (ox, meta_y + 6), theme.TEXT_DIM, self.font_body
+        )
+
+    def _tutorial_controls(self, top: int) -> None:
+        """Controls reference and tactical tips."""
+        from kernelquest.ui.i18n import t
+
+        cx = WINDOW_WIDTH // 2
+        ox = cx - 460
+        line_h = self.font_body.get_height() + 8
+
+        self._blit_text(
+            t("tutorial.controls.section_title"), (ox, top), theme.NEON_AMBER, self.font_body
+        )
+        control_rows = (
+            ("tutorial.controls.move_keys", "tutorial.controls.move_action"),
+            ("tutorial.controls.space_key", "tutorial.controls.space_action"),
+            ("tutorial.controls.slot_keys", "tutorial.controls.slot_action"),
+            ("tutorial.controls.esc_key", "tutorial.controls.esc_action"),
+        )
+        y = top + 32
+        for key_key, action_key in control_rows:
+            self._blit_text(
+                f"{t(key_key):<28}{t(action_key)}",
+                (ox, y),
+                theme.TEXT_PRIMARY,
+                self.font_body,
+            )
+            y += line_h
+
+        y += 8
+        self._blit_text(
+            t("tutorial.controls.tactics_title"), (ox, y), theme.NEON_CYAN, self.font_body
+        )
+        y += 28
+        tactic_keys = (
+            "tutorial.controls.tactic1",
+            "tutorial.controls.tactic2",
+            "tutorial.controls.tactic3",
+            "tutorial.controls.tactic4",
+            "tutorial.controls.tactic5",
+            "tutorial.controls.tactic6",
+        )
+        for tac_key in tactic_keys:
+            self._blit_text(t(tac_key), (ox, y), theme.TEXT_PRIMARY, self.font_body)
+            y += line_h
+
+        self._blit_text(t("tutorial.controls.cta"), (ox, y + 8), theme.NEON_GREEN, self.font_body)
 
     # ---------------- Phase 10 — Tutorial Range UI ----------------
 
@@ -1496,4 +2044,4 @@ class UIManager:
         pygame.draw.rect(self.screen, theme.PLAYER_COLOR, (ox + px * ts, oy + py * ts, ts, ts))
 
 
-__all__ = ["UIManager", "TILE_SIZE"]
+__all__ = ["UIManager", "TILE_SIZE", "TUTORIAL_PAGE_COUNT"]

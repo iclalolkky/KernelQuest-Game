@@ -34,4 +34,6 @@ class GameState(Enum):
     VENDOR = auto()
     MILESTONE_RESULT = auto()
     RUN_SUMMARY = auto()
+    # Quit confirmation modal.
+    QUIT_CONFIRM = auto()
     QUIT = auto()

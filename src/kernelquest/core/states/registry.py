@@ -19,6 +19,7 @@ from kernelquest.core.states.menu_states import (
     HighScoresStateHandler,
     HowToPlayStateHandler,
     MenuStateHandler,
+    QuitConfirmStateHandler,
     SettingsStateHandler,
     StatsStateHandler,
 )
@@ -63,6 +64,7 @@ def build_state_registry() -> dict[GameState, GameStateHandler]:
         GameState.SHOP: ShopStateHandler(),
         GameState.TUTORIAL: TutorialStateHandler(),
         GameState.TUTORIAL_RANGE: TutorialRangeStateHandler(),
+        GameState.QUIT_CONFIRM: QuitConfirmStateHandler(),
         GameState.INTRO: IntroStateHandler(),
         GameState.ENDING: EndingStateHandler(),
         GameState.CODEX: CodexStateHandler(),
