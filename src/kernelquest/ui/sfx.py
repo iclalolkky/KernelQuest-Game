@@ -199,6 +199,93 @@ def _build_loop(notes: tuple[int, ...]) -> bytes:
     return samples.tobytes()
 
 
+def _build_menu_loop() -> bytes:
+    """Phase 12.15 — synth menu theme, 4 bars in A minor at 80 BPM.
+
+    Three layers, additively mixed and clipped:
+
+    * Sub-bass square wave on the chord root (Am — F — C — G).
+    * Saw-pad chord (root + minor/major third + fifth) at low level.
+    * Arpeggio lead in the matching scale, 1/8th notes.
+    """
+    bpm = 80
+    beats_per_bar = 4
+    bars = 4
+    beat_ms = 60_000 // bpm  # 750 ms
+    bar_ms = beat_ms * beats_per_bar  # 3000 ms
+    total_ms = bar_ms * bars  # 12_000 ms
+    total_samples = int(AUDIO_SAMPLE_RATE * total_ms / 1000)
+
+    # Chord progression: Am, F, C, G — one per bar.
+    # (root_hz, third_hz, fifth_hz) in low octave.
+    chords: tuple[tuple[float, float, float], ...] = (
+        (110.0, 130.81, 164.81),  # Am: A2, C3, E3
+        (87.31, 110.0, 130.81),  # F:  F2, A2, C3
+        (130.81, 164.81, 196.0),  # C:  C3, E3, G3
+        (98.0, 123.47, 146.83),  # G:  G2, B2, D3
+    )
+    # Eighth-note arpeggio per chord (8 notes per bar).
+    arps: tuple[tuple[float, ...], ...] = (
+        (440.0, 523.25, 659.25, 523.25, 440.0, 392.0, 523.25, 659.25),  # over Am
+        (349.23, 440.0, 523.25, 440.0, 349.23, 329.63, 440.0, 523.25),  # over F
+        (523.25, 659.25, 783.99, 659.25, 523.25, 493.88, 659.25, 783.99),  # over C
+        (392.0, 493.88, 587.33, 493.88, 392.0, 349.23, 493.88, 587.33),  # over G
+    )
+
+    # Pre-allocate a float buffer (mono) we mix into and quantize at the end.
+    mix = [0.0] * total_samples
+    sr = AUDIO_SAMPLE_RATE
+
+    for bar_index in range(bars):
+        bar_start = int(sr * (bar_ms * bar_index) / 1000)
+        bar_len = int(sr * bar_ms / 1000)
+        root, third, fifth = chords[bar_index]
+
+        # --- Sub-bass: square wave at root, gentle envelope.
+        period_root = max(1, int(sr / root))
+        for i in range(bar_len):
+            t = i / bar_len
+            env = min(t * 12.0, 1.0) * min((1.0 - t) * 6.0, 1.0)
+            value = 0.30 if (i % period_root) < period_root // 2 else -0.30
+            mix[bar_start + i] += value * env
+
+        # --- Saw-pad chord (root + third + fifth, one octave up to thicken).
+        for hz in (root * 2, third * 2, fifth * 2):
+            period = max(1, int(sr / hz))
+            for i in range(bar_len):
+                t = i / bar_len
+                env = min(t * 6.0, 1.0) * min((1.0 - t) * 4.0, 1.0) * 0.18
+                # Naive saw: ramp from -1 to +1 across period.
+                pos = (i % period) / period
+                value = pos * 2.0 - 1.0
+                mix[bar_start + i] += value * env
+
+        # --- Arpeggio lead: 8 eighth-notes per bar, triangle-ish, brighter.
+        notes = arps[bar_index]
+        note_ms = bar_ms // len(notes)
+        note_len = int(sr * note_ms / 1000)
+        for n_idx, hz in enumerate(notes):
+            period = max(1, int(sr / hz))
+            n_start = bar_start + n_idx * note_len
+            for i in range(note_len):
+                if n_start + i >= total_samples:
+                    break
+                t = i / note_len
+                env = min(t * 10.0, 1.0) * min((1.0 - t) * 6.0, 1.0) * 0.35
+                tri = 2 * abs((i % period) / period - 0.5) - 0.5
+                mix[n_start + i] += tri * env
+
+    # Quantize to int16 stereo, soft-clipping anything that ran hot.
+    samples = array("h")
+    peak = max(1.0, max(abs(v) for v in mix))
+    norm = 0.85 / peak
+    for v in mix:
+        s = int(_AMPLITUDE * max(-1.0, min(1.0, v * norm)))
+        samples.append(s)
+        samples.append(s)
+    return samples.tobytes()
+
+
 class SoundManager:
     """Plays short procedurally-generated SFX. Silent if audio init fails."""
 
@@ -246,6 +333,7 @@ class SoundManager:
                     "hydra": pygame.mixer.Sound(buffer=_build_loop(_TRACK_HYDRA)),
                     "buffer_overflow": pygame.mixer.Sound(buffer=_build_loop(_TRACK_BUFFER)),
                     "zero_day": pygame.mixer.Sound(buffer=_build_loop(_TRACK_ZERO_DAY)),
+                    "menu": pygame.mixer.Sound(buffer=_build_menu_loop()),
                 }
                 self._music_channel = pygame.mixer.Channel(7)
             except pygame.error:  # pragma: no cover
